@@ -30,3 +30,9 @@
 *.exe
 *.out
 *.app
+
+# vim
+*.sw[a-z]
+
+# CMake build
+build/
