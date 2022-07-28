@@ -50,6 +50,38 @@ public:
   }
 };
 
+void sendInt(boost::asio::ip::tcp::socket& sock, int value) {
+  std::cout << "sending " << value << '\n';
+  for (;;) {
+    boost::system::error_code ec;
+
+    //boost::array<char, 128> buf;
+    //::memcpy(buf.data(), &numberNetwork, sizeof(int));
+
+    struct intPod { int whatever; } buf[1];
+
+    buf[0].whatever = value;
+
+    size_t written = sock.write_some(buffer(buf), ec);
+
+    if (written == 0) {
+      std::cout << "ERROR write_some returned 0" << std::endl;
+    std::cout << "ec val " << ec.value() << " ec what: " << ec.what() << std::endl;
+      break;
+    }
+
+    std::cout << "Written " << written << std::endl;
+    std::cout << "ec val " << ec.value() << std::endl;
+
+    if (ec.value() == 0 || written >= sizeof(int)) {
+      std::cout << "no error" << std::endl;
+    }
+    else {
+      std::cout << "ERROR " << ec.what() << " (" << ec.value() << ')' << std::endl;
+    }
+  }
+}
+
 int main(int argc, char* argv[]) {
   std::ostream::sync_with_stdio(false);
 
@@ -62,32 +94,39 @@ int main(int argc, char* argv[]) {
 
   ip::tcp::resolver resolver(context);
 
+  std::string portStr = std::to_string(Deployka::TCP_PORT);
+
   try {
-    ip::tcp::resolver::results_type gaiResults = resolver.resolve(argv[1], "daytime");
+    ip::tcp::resolver::results_type gaiResults = resolver.resolve(argv[1], portStr);
 
     ip::tcp::socket sock(context);
 
     connect(sock, gaiResults);
 
-    for (;;) {
-      boost::array<char, 128> buf;
-      boost::system::error_code ec;
+    //for (; false;) {
+    //  boost::array<char, 128> buf;
+    //  boost::system::error_code ec;
 
-      size_t len = sock.read_some(buffer(buf), ec);
+    //  size_t len = sock.read_some(buffer(buf), ec);
 
-      if (ec == boost::asio::error::eof) {
-        break;
-      }
-      else if (ec) {
-        throw boost::system::system_error(ec);
-      }
+    //  if (ec == boost::asio::error::eof) {
+    //    break;
+    //  }
+    //  else if (ec) {
+    //    throw boost::system::system_error(ec);
+    //  }
 
-      std::cout.write(buf.data(), len);
+    //  std::cout.write(buf.data(), len);
+    //}
 
-    }
+    sendInt(sock, 1337);
+
+    sendInt(sock, 1);
+
+    //sock.close() ???
   }
   catch (std::exception & e) {
-    std::cerr << e.what() << std::endl;
+    std::cerr << "Exception in main: " << e.what() << std::endl;
   }
 
   return 0;
