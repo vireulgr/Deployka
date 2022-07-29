@@ -9,78 +9,61 @@
 
 using namespace boost::asio;
 
-/******************************************************************************//*
-*
-Printer class usage:
-int main() {
-  io_context context;
-  boost::system::error_code ec;
-
-  Printer printer(context);
-
-  printer.printFunc(ec);
-
-  context.run();
-}
-*********************************************************************************/
-class Printer {
-  int m_count;
-  steady_timer m_timer;
-
-public:
-  Printer(io_context & ctx)
-    : m_count(0)
-    , m_timer(ctx, chrono::seconds(1))
-  {}
-
-  ~Printer() {
-    std::cout << "\ncount: " << m_count << std::endl;
-  }
-
-  void printFunc(boost::system::error_code const & ec) {
-    if (ec.value() != 0) {
-      std::cout << "error: " << ec.value() << "\n";
-    }
-    if (m_count < 5) {
-      std::cout << this->m_count << " ";
-      m_count += 1;
-      m_timer.expires_at(this->m_timer.expiry() + chrono::seconds(1));
-      m_timer.async_wait(boost::bind(&Printer::printFunc, this, placeholders::error));
-    }
-  }
-};
-
-void sendInt(boost::asio::ip::tcp::socket& sock, int value) {
-  std::cout << "sending " << value << '\n';
+void sendString(boost::asio::ip::tcp::socket& sock, std::string aStr) {
+  std::cout << "sending \"" << aStr << "\"\n";
   for (;;) {
     boost::system::error_code ec;
 
-    //boost::array<char, 128> buf;
-    //::memcpy(buf.data(), &numberNetwork, sizeof(int));
+    size_t written = sock.write_some(buffer(aStr), ec);
 
-    struct intPod { int whatever; } buf[1];
+    if (written == 0) {
+      std::cout 
+        << "ERROR write_some returned 0! ec val " << ec.value()
+        << " ec what: " << ec.what()
+        << std::endl;
+      break;
+    }
+
+    std::cout << "Written " << written << std::endl;
+
+    if (ec.value() != 0) {
+      std::cout << "ERROR " << ec.what() << " (" << ec.value() << ')' << std::endl;
+      break;
+    }
+
+    if (written >= aStr.size()) {
+      break;
+    }
+  }
+}
+template<typename T>
+void sendIntegralOrEnum(boost::asio::ip::tcp::socket& sock, T value) {
+  static_assert(std::is_arithmetic<T>::value || std::is_enum<T>::value, "Type is not suitable");
+
+  std::cout << "sending \"" << value << "\"";
+  for (;;) {
+    boost::system::error_code ec;
+
+    struct intPod { T whatever; } buf[1];
 
     buf[0].whatever = value;
 
     size_t written = sock.write_some(buffer(buf), ec);
 
     if (written == 0) {
-      std::cout << "ERROR write_some returned 0" << std::endl;
-    std::cout << "ec val " << ec.value() << " ec what: " << ec.what() << std::endl;
+      std::cout << "ERROR write_some returned 0! ec val " << ec.value() << " ec what: " << ec.what() << std::endl;
       break;
     }
 
-    std::cout << "Written " << written << std::endl;
-    std::cout << "ec val " << ec.value() << std::endl;
+    std::cout << " ok, written " << written << std::endl;
 
-    if (ec.value() == 0 || written >= sizeof(int)) {
-      std::cout << "no error" << std::endl;
-      if (written >= sizeof(int)) {
-        break;
-      }
-    }
-    else {
+    if (ec.value() != 0) {
       std::cout << "ERROR " << ec.what() << " (" << ec.value() << ')' << std::endl;
+      break;
+    }
+    
+    if (written >= sizeof(T)) {
+      break;
     }
   }
 }
@@ -106,36 +89,47 @@ int main(int argc, char* argv[]) {
 
     connect(sock, gaiResults);
 
-    //for (; false;) {
-    //  boost::array<char, 128> buf;
-    //  boost::system::error_code ec;
-
-    //  size_t len = sock.read_some(buffer(buf), ec);
-
-    //  if (ec == boost::asio::error::eof) {
-    //    break;
-    //  }
-    //  else if (ec) {
-    //    throw boost::system::system_error(ec);
-    //  }
-
-    //  std::cout.write(buf.data(), len);
-    //}
+    std::cout << "enter q to quit; l to sending ints; j to send strings; t to send custom data set\n";
 
     for (;;) {
 
       char c;
       std::cin >> c;
-      std::cout << "got: " << c << "(" << (int)c << ")\n";
       if (c == 'q') { break; }
       if (c == 'l') {
-        sendInt(sock, 1337);
+        std::cout << "send ints\n";
+        sendIntegralOrEnum(sock, 1337);
 
-        sendInt(sock, 42);
+        sendIntegralOrEnum(sock, 42);
+      }
+      if (c == 'j') {
+
+        std::cout << "send strings\n";
+        sendString(sock, "char str 1  of");
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        sendString(sock, " sz 20char");
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+        sendString(sock, " str 2  of sz 20char str 3  of sz 20");
+      }
+      if (c == 't') {
+
+        sendIntegralOrEnum<long long>(sock, 1337ll);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+
+        sendIntegralOrEnum<long long>(sock, 42ll);
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
+
+        sendIntegralOrEnum<size_t>(sock, 20ull);
+        sendString(sock, "char str 3  of sz 20");
+
+        sendIntegralOrEnum<size_t>(sock, 22ull);
+        sendString(sock, "char string of size 22");
+
+        sendIntegralOrEnum<long double>(sock, 3.14159265358979);
       }
     }
-
-    //sock.close() ???
   }
   catch (std::exception & e) {
     std::cerr << "Exception in main: " << e.what() << std::endl;
