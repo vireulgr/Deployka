@@ -35,37 +35,53 @@ public:
   boost::asio::ip::tcp::socket & socket() { return m_sock; }
 
   static pointer create(boost::asio::io_context& ctx) {
-    return pointer(new DeploykaTcpConnection(ctx));
+    DeploykaTcpConnection * conn = new DeploykaTcpConnection(ctx);
+    std::cout << "[conn::create]          ptr: 0x" << conn << '\n';
+    return pointer(conn);
   }
 
   void start() {
+    std::cout << "[conn::start]          this: 0x" << this << '\n';
     // TODO
     m_sock.async_receive(boost::asio::buffer(m_receiveBuffer),
       boost::bind(&DeploykaTcpConnection::handleRead,
-        this,
+        shared_from_this(),
         boost::asio::placeholders::error,
         boost::asio::placeholders::bytes_transferred));
   }
 
+  //void a (size_t received) {
+  //  memcpy(m_messageBuffer.data(), m_receiveBuffer.data() + m_msgReceived, received);
+  //  m_msgReceived += received;
+  //  if (m_msgReceived > member.offset + member.size) {
+  //    receiveMember(member);
+
+  //  }
+  //}
+
   void handleRead(boost::system::error_code const & ec, size_t received) {
+    std::cout << "[conn::handleRead]=====this: 0x" << this << "========\n";
     if (ec) {
-      std::cerr << "error in handle read: " << ec.what() << " (" << ec.value() << ')' << std::endl;
+      std::cerr << "[conn::handleRead] error:" << ec.what() << " (" << ec.value() << ')' << std::endl;
       return;
     }
 
-    std::cout << "received " << received << '\n';
+    std::cout << "[conn::handleRead] received " << received << '\n';
     size_t receivedUsed = 0;
-    std::cout << "received Used" << receivedUsed << " msgReceived " << m_msgReceived << std::endl;
-    if (m_msgReceived - receivedUsed < sizeof(m_msg.m_size)) {
-      size_t thisMemberOffset = 0;
-      size_t thisMemberSize = sizeof(m_msg.m_size);
+
+    size_t thisMemberOffset = 0;
+    size_t thisMemberSize = sizeof(m_msg.m_size);
+    if (m_msgReceived + (received - receivedUsed) >= thisMemberOffset
+      && m_msgReceived < thisMemberOffset + thisMemberSize) {
+
       size_t thisReceivedUse = std::min(sizeof(m_msg.m_size) - (m_msgReceived - receivedUsed), received - receivedUsed);
-      std::cout << "m_size thisReceivedUse: " << thisReceivedUse << std::endl;;
+      std::cout << "[conn::handleRead] m_size thisReceivedUse: " << thisReceivedUse << std::endl;;
       memcpy(m_messageBuffer.data() + m_msgReceived, m_receiveBuffer.data(), thisReceivedUse);
 
       if (thisReceivedUse + m_msgReceived == sizeof(m_msg.m_size)) {
+        std::cout << "[conn::handleRead] m_size rd from " << thisMemberOffset << " sz: " << thisMemberSize << '\n';
         memcpy(&(m_msg.m_size), m_messageBuffer.data() + thisMemberOffset, thisMemberSize);
-        std::cout << "m_size received!; Value: " << m_msg.m_size << '\n';
+        std::cout << "[conn::handleRead] m_size received!; Value: " << m_msg.m_size << '\n';
         m_msgReceived += thisReceivedUse;
       }
       receivedUsed += thisReceivedUse;
@@ -73,20 +89,26 @@ public:
 
     if (receivedUsed >= received) {
       m_msgReceived = receivedUsed;
-      std::cout << "received " << received << " total: " << m_msgReceived << '\n';
+      std::cout << "[conn::handleRead] received " << received << " total: " << m_msgReceived << '\n';
+      start();
       return;
     }
 
-    if (m_msgReceived - receivedUsed < sizeof(m_msg.m_type)) {
-      size_t thisMemberOffset = sizeof(m_msg.m_size);
-      size_t thisMemberSize = sizeof(m_msg.m_type);
+    std::cout << "[conn::handleRead] received Used: " << receivedUsed << "; msgReceived " << m_msgReceived << std::endl;
+
+    /*size_t*/ thisMemberOffset = sizeof(m_msg.m_size);
+    /*size_t*/ thisMemberSize = sizeof(m_msg.m_type);
+    if (m_msgReceived + (received - receivedUsed) >= thisMemberOffset
+      && m_msgReceived < thisMemberOffset + thisMemberSize) {
+
       size_t thisReceivedUse = std::min(sizeof(m_msg.m_type) - (m_msgReceived - receivedUsed), received - receivedUsed);
-      std::cout << "m_type thisReceivedUse: " << thisReceivedUse << '\n';
+      std::cout << "[conn::handleRead] m_type thisReceivedUse: " << thisReceivedUse << '\n';
       memcpy(m_messageBuffer.data() + m_msgReceived, m_receiveBuffer.data(), thisReceivedUse);
 
       if (thisReceivedUse + m_msgReceived == sizeof(m_msg.m_type)) {
+        std::cout << "[conn::handleRead] m_type rd from " << thisMemberOffset << " sz: " << thisMemberSize << '\n';
         memcpy(&(m_msg.m_type), m_messageBuffer.data() + thisMemberOffset, thisMemberSize);
-        std::cout << "m_type received!; Value: " << m_msg.m_type << '\n';
+        std::cout << "[conn::handleRead] m_type received!; Value: " << m_msg.m_type << '\n';
         m_msgReceived += thisReceivedUse;
       }
       receivedUsed += thisReceivedUse;
@@ -94,16 +116,18 @@ public:
 
     if (receivedUsed >= received) {
       m_msgReceived = receivedUsed;
-      std::cout << "received " << received << " total: " << m_msgReceived << '\n';
+      std::cout << "[conn::handleRead] received " << received << " total: " << m_msgReceived << '\n';
+      start();
       return;
     }
 
-    std::cout << "restarting receive" << std::endl;
+    std::cout << "[conn::handleRead] restarting receive" << std::endl;
 
     start();
   }
 
   void handleWrite() {
+    std::cout << "[conn::handleWrite]\n";
   }
 };
 
@@ -119,6 +143,7 @@ public:
   }
 
   void handleAccept(DeploykaTcpConnection::pointer newConnection, boost::system::error_code const & ec) {
+    std::cout << "[serv::handleAccept] con ptr 0x" << newConnection.get() << '\n';
     if (!ec) {
       newConnection->start();
     }
@@ -127,6 +152,7 @@ public:
 
   void startAccept() {
     DeploykaTcpConnection::pointer newConnection = DeploykaTcpConnection::create(m_ctx);
+    std::cout << "[serv::startAccept] con ptr: 0x" << newConnection.get() << '\n';
 
     m_acceptor.async_accept(newConnection->socket(),
       boost::bind(&DeploykaTcpServer::handleAccept,
@@ -154,13 +180,16 @@ void client_session(boost::shared_ptr<ip::tcp::socket> sock) {
 
 
 int main() {
-  
   std::cout << "Hello from Target Agent!" << std::endl;
   io_context context;
   try {
     DeploykaTcpServer server(context);
     //
+    std::cout << "[main]                after server creation\n";
+
     context.run();
+
+    std::cout << "[main]                after context run\n";
   }
   catch (std::exception& e) {
     std::cerr << "exception in main: " << e.what() << std::endl;

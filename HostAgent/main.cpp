@@ -75,6 +75,9 @@ void sendInt(boost::asio::ip::tcp::socket& sock, int value) {
 
     if (ec.value() == 0 || written >= sizeof(int)) {
       std::cout << "no error" << std::endl;
+      if (written >= sizeof(int)) {
+        break;
+      }
     }
     else {
       std::cout << "ERROR " << ec.what() << " (" << ec.value() << ')' << std::endl;
@@ -119,9 +122,18 @@ int main(int argc, char* argv[]) {
     //  std::cout.write(buf.data(), len);
     //}
 
-    sendInt(sock, 1337);
+    for (;;) {
 
-    sendInt(sock, 1);
+      char c;
+      std::cin >> c;
+      std::cout << "got: " << c << "(" << (int)c << ")\n";
+      if (c == 'q') { break; }
+      if (c == 'l') {
+        sendInt(sock, 1337);
+
+        sendInt(sock, 42);
+      }
+    }
 
     //sock.close() ???
   }

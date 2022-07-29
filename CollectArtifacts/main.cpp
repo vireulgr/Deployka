@@ -143,12 +143,31 @@ int main(int argc, char * argv[]) {
       //std::unique_ptr<wchar_t[]> tmpWCharBuf = std::make_unique<wchar_t[]>(srcStrSize);
       //std::mbstowcs(tmpWCharBuf.get(), v2.first.c_str(), srcStrSize);
 
+      //std::cout
+      //  << "f: " << v2.first << "; "
+      //  << "s: " << v2.second.data() << "; "
+      //  << "xmlattrs: " << v2.second.count("<xmlattr>") << "\n";
+
+      if (v2.second.count("<xmlattr>")) {
+        std::cout
+          << "rd: " << v2.second.count("RootDir") << "; "
+          << "pat: " << v2.second.count("Pattern") << ";\n";
+
+        pt::ptree::value_type & xmlAttrVal = v2.second.get_child("<xmlattr>").front();
+        //pt::ptree::value_type & xmlRootDir = v2.second.get_child("RootDir").front();
+        //pt::ptree::value_type & xmlPattern = v2.second.get_child("Pattern").front();
+
+        std::cout << xmlAttrVal.first << " " << xmlAttrVal.second.data() << '\n';
+        //std::cout << xmlRootDir.first << "\n";
+        //std::cout << xmlPattern.first << "\n";
+      }
+
       if (v2.first == "Dependency") {
         aTarget.m_dependencies.emplace_back(v2.second.data());
       }
     }
 
-    std::cout << aTarget << '\n';
+    //std::cout << aTarget << '\n';
     g_targets.emplace_back(std::move(aTarget));
   }
 
