@@ -3,73 +3,114 @@
 #define BOOST_ASIO_NO_TS_EXECUTORS
 #include "boost/asio.hpp"
 #include "boost/bind.hpp"
-#include "boost/array.hpp"
+#include <fstream>
+#include <streambuf>
+//#include "boost/asio/impl/src.hpp"
 
-#include "..\common\DeploykaNet.h"
+#include "networkLib.h"
 
 using namespace boost::asio;
 
-void sendString(boost::asio::ip::tcp::socket& sock, std::string aStr) {
-  std::cout << "sending \"" << aStr << "\"\n";
+// ================================================================================
+void sendBuffer(boost::asio::ip::tcp::socket &sock, boost::asio::const_buffer & bf) {
+
   for (;;) {
     boost::system::error_code ec;
 
-    size_t written = sock.write_some(buffer(aStr), ec);
+    size_t written = sock.write_some(bf, ec);
 
-    if (written == 0) {
-      std::cout 
-        << "ERROR write_some returned 0! ec val " << ec.value()
-        << " ec what: " << ec.what()
-        << std::endl;
-      break;
-    }
-
-    std::cout << "Written " << written << std::endl;
+    std::cout << "write_some returned " << written << '\n';
 
     if (ec.value() != 0) {
       std::cout << "ERROR " << ec.what() << " (" << ec.value() << ')' << std::endl;
       break;
     }
 
-    if (written >= aStr.size()) {
+    if (written >= bf.size()) {
       break;
     }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
   }
 }
+
+
+// ================================================================================
+void sendCommand(boost::asio::ip::tcp::socket & sock, std::vector<Deployka::MemberInfo> & mi) {
+  for (Deployka::MemberInfo& item : mi) {
+    boost::asio::const_buffer aConstBuffer = buffer(item.buffer);
+    sendBuffer(sock, aConstBuffer);
+  }
+}
+
+
+// ================================================================================
 template<typename T>
-void sendIntegralOrEnum(boost::asio::ip::tcp::socket& sock, T value) {
+void sendArithmeticOrEnum(boost::asio::ip::tcp::socket& sock, T value) {
   static_assert(std::is_arithmetic<T>::value || std::is_enum<T>::value, "Type is not suitable");
 
-  std::cout << "sending \"" << value << "\"";
-  for (;;) {
-    boost::system::error_code ec;
+  std::cout << "sending something \"" << value << "\"";
 
-    struct intPod { T whatever; } buf[1];
+  struct intPod { T whatever; } tmpStruct[1];
 
-    buf[0].whatever = value;
+  tmpStruct[0].whatever = value;
 
-    size_t written = sock.write_some(buffer(buf), ec);
+  boost::asio::const_buffer aConstBuf = buffer(tmpStruct);
 
-    if (written == 0) {
-      std::cout << "ERROR write_some returned 0! ec val " << ec.value() << " ec what: " << ec.what() << std::endl;
-      break;
-    }
-
-    std::cout << " ok, written " << written << std::endl;
-
-    if (ec.value() != 0) {
-      std::cout << "ERROR " << ec.what() << " (" << ec.value() << ')' << std::endl;
-      break;
-    }
-    
-    if (written >= sizeof(T)) {
-      break;
-    }
-  }
+  sendBuffer(sock, aConstBuf);
 }
 
+
+// ================================================================================
+void sendFileCommand(boost::asio::ip::tcp::socket& sock, std::string filename) {
+  long long int longLongBuf = Deployka::DMT_File;
+  std::vector<Deployka::MemberInfo> memInfo = Deployka::buildMemberInfo(Deployka::g_commands.at((Deployka::MessageType)longLongBuf));
+
+  // member #1
+  char const* cmdPtr = (char*)&longLongBuf;
+  std::copy(cmdPtr, cmdPtr + memInfo[0].memberSize, std::back_inserter(memInfo[0].buffer));
+
+  std::ifstream ifs;
+  ifs.open(filename, std::ios_base::binary | std::ios_base::ate);
+  if (!ifs.is_open()) {
+    throw std::logic_error("file is not open");
+  }
+  /*size_t */longLongBuf = ifs.tellg();
+  ifs.seekg(0, std::ios_base::beg);
+
+  // member #2
+  /*char const* */cmdPtr = (char*)&longLongBuf;
+  std::copy(cmdPtr, cmdPtr + memInfo[1].memberSize, std::back_inserter(memInfo[1].buffer));
+
+  // member #3
+  memInfo[2].buffer.reserve(longLongBuf);
+
+  std::copy(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>(), std::back_inserter(memInfo[2].buffer));
+
+  // member #4
+  /*size_t*/ longLongBuf = filename.size();
+  /*char const**/ cmdPtr = (char*)&longLongBuf;
+  std::copy(cmdPtr, cmdPtr + memInfo[3].memberSize, std::back_inserter(memInfo[3].buffer));
+
+  // member #5
+  std::copy(filename.begin(), filename.end(), std::back_inserter(memInfo[4].buffer));
+
+  sendCommand(sock, memInfo);
+}
+ 
+
+// ================================================================================
+void sendString(boost::asio::ip::tcp::socket& sock, std::string aStr) {
+  std::cout << "sending string \"" << aStr << "\"... ";
+  boost::asio::const_buffer aConstBuf = buffer(aStr);
+  sendBuffer(sock, aConstBuf);
+}
+
+
+//================================================================================
 int main(int argc, char* argv[]) {
   std::ostream::sync_with_stdio(false);
+  system("cd ");
 
   if (argc != 2) {
     std::cout << "Provide hostname\n";
@@ -89,21 +130,19 @@ int main(int argc, char* argv[]) {
 
     connect(sock, gaiResults);
 
-    std::cout << "enter q to quit; l to sending ints; j to send strings; t to send custom data set\n";
 
     for (;;) {
 
+      std::cout << "Enter q to quit; l to sending ints; j to send strings; t to send custom data set\n";
       char c;
       std::cin >> c;
       if (c == 'q') { break; }
       if (c == 'l') {
         std::cout << "send ints\n";
-        sendIntegralOrEnum(sock, 1337);
-
-        sendIntegralOrEnum(sock, 42);
+        sendArithmeticOrEnum(sock, 1337);
+        sendArithmeticOrEnum(sock, 42);
       }
       if (c == 'j') {
-
         std::cout << "send strings\n";
         sendString(sock, "char str 1  of");
         std::this_thread::sleep_for(std::chrono::milliseconds(400));
@@ -113,21 +152,24 @@ int main(int argc, char* argv[]) {
       }
       if (c == 't') {
 
-        sendIntegralOrEnum<long long>(sock, 1337ll);
+        sendArithmeticOrEnum<long long>(sock, 1337ll);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(400));
 
-        sendIntegralOrEnum<long long>(sock, 42ll);
+        sendArithmeticOrEnum<long long>(sock, 42ll);
 
         std::this_thread::sleep_for(std::chrono::milliseconds(400));
 
-        sendIntegralOrEnum<size_t>(sock, 20ull);
+        sendArithmeticOrEnum<size_t>(sock, 20ull);
         sendString(sock, "char str 3  of sz 20");
 
-        sendIntegralOrEnum<size_t>(sock, 22ull);
+        sendArithmeticOrEnum<size_t>(sock, 22ull);
         sendString(sock, "char string of size 22");
 
-        sendIntegralOrEnum<long double>(sock, 3.14159265358979);
+        sendArithmeticOrEnum<long double>(sock, 3.14159265358979);
+      }
+      if (c == 'g') {
+        sendFileCommand(sock, "CMakeLists.txt");
       }
     }
   }
