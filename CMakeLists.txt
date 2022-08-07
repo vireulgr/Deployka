@@ -29,6 +29,7 @@ endif()
 
 add_subdirectory(CollectArtifacts)
 add_subdirectory(DeployArtifacts)
+add_subdirectory(NetworkLib)
 add_subdirectory(HostAgent)
 add_subdirectory(TargetAgent)
 
