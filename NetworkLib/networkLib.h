@@ -23,9 +23,9 @@ namespace Deployka {
   };
 
   enum MessageType : size_t {
-    DMT_Null,
+    DMT_Null = 0,
     DMT_File,
-    DMT_FileChunked,
+    DMT_FileChunk,
     DMT_MessageTypeMax
   };
 
@@ -34,7 +34,7 @@ namespace Deployka {
     int m_size;
     std::vector<unsigned char> m_data;
   };
-  // TODO интерфейс для извлечения частей команды из буфера в MemberInfo
+
   enum MemberType : size_t {
     MT_notype = 0,
     MT_dynamic = 0,
@@ -57,16 +57,23 @@ namespace Deployka {
   std::map<MessageType, std::vector<MemberType>> const g_commands = { 
     {
       DMT_File,
-      //        command code            file data size            file data            file Name Size              file name
-      {Deployka::MT_longLong, Deployka::MT_dynamicSize, Deployka::MT_dynamic, Deployka::MT_dynamicSize, Deployka::MT_dynamic}
+      // cmd code   file data size  file data   file Name Size  file name
+      {MT_longLong, MT_dynamicSize, MT_dynamic, MT_dynamicSize, MT_dynamic}
+    },
+    {
+      DMT_FileChunk,
+      // | file chunk command | file name length | file name | file last mod time length | <cr>
+      {MT_longLong,              MT_dynamicSize,   MT_dynamic,  MT_dynamicSize,
+      // file last mod time (ISD date string) | file size | chunk number | chunk length | chunk file data |
+      MT_dynamic,                              MT_longLong, MT_longLong,  MT_dynamicSize, MT_dynamic}
     }
     // TODO
   };
 
   std::vector<MemberInfo> buildMemberInfo(std::vector<MemberType> const mt);
 
+  // TODO интерфейс для извлечения частей команды из буфера в MemberInfo
   // TODO function receive member info vector
   // TODO function send member info vector
-
 }
 #endif
