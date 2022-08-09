@@ -62,7 +62,7 @@ namespace Deployka {
     },
     {
       DMT_FileChunk,
-      // | file chunk command | file name length | file name | file last mod time length | <cr>
+      // | file chunk command | file name length | file name | file last mod time length |
       {MT_longLong,              MT_dynamicSize,   MT_dynamic,  MT_dynamicSize,
       // file last mod time (ISD date string) | file size | chunk number | chunk length | chunk file data |
       MT_dynamic,                              MT_longLong, MT_longLong,  MT_dynamicSize, MT_dynamic}
@@ -71,6 +71,9 @@ namespace Deployka {
   };
 
   std::vector<MemberInfo> buildMemberInfo(std::vector<MemberType> const mt);
+
+  void printHex(std::vector<unsigned char>& vec);
+  void printString(std::vector<unsigned char>& vec);
 
   // TODO интерфейс для извлечения частей команды из буфера в MemberInfo
   // TODO function receive member info vector
