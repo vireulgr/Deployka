@@ -60,8 +60,6 @@ boost::system::error_code sendBuffer(ip::tcp::socket &sock, const_buffer & bf) {
 
     size_t written = sock.write_some(bf, ec);
 
-    std::cout << "write_some returned " << written << '\n';
-
     if (ec.value() != 0) {
       std::cout << "[sendBuffer] ERROR " << ec.what() << " (" << ec.value() << ')' << std::endl;
       return ec;
@@ -79,13 +77,18 @@ boost::system::error_code sendBuffer(ip::tcp::socket &sock, const_buffer & bf) {
 
 // ================================================================================
 boost::system::error_code sendMessage(ip::tcp::socket & sock, std::vector<Deployka::MemberInfo> & mi) {
+  std::cout << "      sent |    total\n";
+  size_t totalSent = 0;
   for (Deployka::MemberInfo& item : mi) {
     const_buffer aConstBuffer = buffer(item.buffer);
     boost::system::error_code ec = sendBuffer(sock, aConstBuffer);
     if (ec.value() != 0) {
       return ec;
     }
+    totalSent += aConstBuffer.size();
+    std::cout << std::setw(9) << aConstBuffer.size() << std::setw(9) << totalSent << '\n';
   }
+  return boost::system::error_code();
 }
 
 
@@ -96,9 +99,7 @@ void sendArithmeticOrEnum(ip::tcp::socket& sock, T value) {
 
   std::cout << "sending something \"" << value << "\"";
 
-  struct intPod { T whatever; } tmpStruct[1];
-
-  tmpStruct[0].whatever = value;
+  struct TempPodStruct { T whatever; } tmpStruct[1] = { {value} };
 
   const_buffer aConstBuf = buffer(tmpStruct);
 
@@ -252,6 +253,8 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
     // member #8 file chunk
     serializeToMember(memInfoVec[8], buffer.get(), bytesRead);
 
+    //Deployka::printString(memInfoVec[8].buffer);
+
     boost::system::error_code ec = sendMessage(sock, memInfoVec);
     if (ec.value() != 0) {
       break;
@@ -286,7 +289,6 @@ void sendString(ip::tcp::socket& sock, std::string aStr) {
 //================================================================================
 int main(int argc, char* argv[]) {
   std::ostream::sync_with_stdio(false);
-  system("cd ");
 
   if (argc != 2) {
     std::cout << "Provide hostname\n";
@@ -306,12 +308,7 @@ int main(int argc, char* argv[]) {
 
     connect(sock, gaiResults);
 
-    for (;;) {
-
-      std::cout << "Enter q to quit; l to sending ints; j to send strings; t to send custom data set\n";
-      char c;
-      std::cin >> c;
-      if (c == 'q') { break; }
+    for (char c = '\0'; c != 'q'; std::cin >> c) {
       if (c == 'l') {
         std::cout << "send ints\n";
         sendArithmeticOrEnum(sock, 1337);
@@ -346,6 +343,8 @@ int main(int argc, char* argv[]) {
         char const fileName[] = "E:\\prog\\cpp\\Deployka\\somefile.txt";
         sendFileChunkedCommand(sock, fileName);
       }
+
+      std::cout << "Enter q to quit; h to send chukned file; g to send small file\n";
     }
   }
   catch (std::exception & e) {

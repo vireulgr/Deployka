@@ -4,7 +4,9 @@
 #include "boost/bind.hpp"
 #include "boost/enable_shared_from_this.hpp"
 #include "boost/shared_ptr.hpp"
+#include <vector>
 #include <iostream>
+#include <iomanip>
 #include <map>
 //#include "boost/asio/impl/src.hpp"
 
@@ -12,17 +14,24 @@
 
 constexpr size_t RECV_BUF_SIZE = 8196;
 
+/******************************************************************************//*
+*
+*********************************************************************************/
+//struct DeploykaReceiveBuffer {
+//  size_t bufferOffset; // offset of buffer in message
+//  size_t bufferSize; // buffer size
+//  //size_t readOffsetInBuffer;
+//  size_t getDataFromMessageOffset(size_t msgOff, size_t dataSize);
+//  size_t getDataFromBufferOffset(size_t msgOff, size_t dataSize);
+//  std::array<unsigned char, RECV_BUF_SIZE> m_buffer;
+//};
 
 /******************************************************************************//*
 *
 *********************************************************************************/
-class DeploykaTcpConnection: public boost::enable_shared_from_this<DeploykaTcpConnection> {
-
-  std::vector<Deployka::MemberType> m_memberInfoDeclare;
+struct DeploykaMessageReceiver {
   std::vector<Deployka::MemberInfo> m_memberInfo;
 
-
-  std::array<unsigned char, RECV_BUF_SIZE> m_receiveBuffer;
   std::array<unsigned char, RECV_BUF_SIZE> m_messageBuffer;
   std::vector<unsigned char> m_pending;
 
@@ -30,24 +39,21 @@ class DeploykaTcpConnection: public boost::enable_shared_from_this<DeploykaTcpCo
   size_t m_consumed;
   size_t m_msgReceived;
   size_t m_dynamicOffset; // sum of length of all dynamic data members that has been processed so far
+  size_t m_curBufOffset;
 
   Deployka::MessageType m_currentMessageType;
 
-  boost::asio::ip::tcp::socket m_sock;
-
-  //================================================================================
-  DeploykaTcpConnection(boost::asio::io_context& ctx)
-    : m_sock(ctx)
-    , m_msgReceived(0)
+  DeploykaMessageReceiver() 
+    : m_msgReceived(0)
+    , m_currentMessageType(Deployka::DMT_Null)
     , m_dynamicOffset(0)
     , m_nextMemberIndex(0)
     , m_consumed(0)
-    , m_currentMessageType(Deployka::DMT_Null)
   {
-    cleanupReceiveState();
-    // m_memberInfo will be initialized after command is received
+    m_messageBuffer.fill(0);
   }
 
+  //================================================================================
   void cleanupMemberInfo() {
     std::transform(
       m_memberInfo.begin(),
@@ -60,14 +66,198 @@ class DeploykaTcpConnection: public boost::enable_shared_from_this<DeploykaTcpCo
       });
   }
 
+  //================================================================================
   void cleanupReceiveState() {
     m_messageBuffer.fill(0);
-    m_receiveBuffer.fill(0);
     m_msgReceived = 0;
     m_currentMessageType = Deployka::DMT_Null;
     m_dynamicOffset = 0;
     m_nextMemberIndex = 0;
     m_consumed = 0;
+  }
+
+  //================================================================================
+  void receive(unsigned char const* data, size_t dataSize) {
+    memcpy(m_messageBuffer.data(), data, dataSize);
+
+    m_curBufOffset = m_msgReceived;
+    m_msgReceived += dataSize;
+
+    std::cout << "[recvr::receive] received: " << dataSize << "; msgReceived: " << m_msgReceived << "; consumed: " << m_consumed << '\n';
+
+    if (m_currentMessageType == Deployka::DMT_Null
+      && m_msgReceived >= sizeof(m_currentMessageType))
+    {
+      // here we copy always from zero offset
+      memcpy(&m_currentMessageType, m_messageBuffer.data(), sizeof(m_currentMessageType));
+
+      if (m_currentMessageType >= Deployka::MessageType::DMT_MessageTypeMax) {
+        std::vector<unsigned char> vec;
+        vec.reserve(m_msgReceived);
+        vec.assign(m_messageBuffer.begin(), m_messageBuffer.begin()+m_msgReceived);
+        Deployka::printHex(vec);
+
+        vec.assign(m_messageBuffer.begin(), m_messageBuffer.begin() + 44);
+        Deployka::printString(vec);
+
+        std::transform(m_messageBuffer.begin() + 44, m_messageBuffer.begin() + m_msgReceived, m_messageBuffer.begin(), [](char c) { return c; });
+
+        memcpy(&m_currentMessageType, m_messageBuffer.data(), sizeof(m_currentMessageType));
+        std::cout << "cur msg type: " << m_currentMessageType << '\n';
+
+        std::cout << "[recvr::receive] ERROR: message type received is " << m_currentMessageType << '\n';
+        throw std::logic_error("Wrong message type");
+      }
+
+      std::cout << "[recvr::receive] received command: >>>>>>" << m_currentMessageType << "<<<<<<\n";
+      m_memberInfo.clear();
+      Deployka::MessageType msgType = (Deployka::MessageType)m_currentMessageType;
+      m_memberInfo = Deployka::buildMemberInfo(Deployka::g_commands.at(msgType));
+    }
+
+    // process rest of received data in m_messageBuffer
+
+    processReadedData();
+
+    // if all command is received: cleanup receive state
+    if (std::all_of(m_memberInfo.cbegin(), m_memberInfo.cend(), [](Deployka::MemberInfo const& mi) { return mi.done; })) {
+      cleanupMemberInfo();
+      cleanupReceiveState();
+      std::cout << "[recvr::receive] after cleanup received state\n";
+    }
+
+  }
+  //================================================================================
+  void saveResidualToPending() {
+    if (m_consumed >= m_msgReceived) {
+      return;
+    }
+
+    size_t toCopy = std::min(m_msgReceived - m_consumed, RECV_BUF_SIZE);
+    size_t offset = RECV_BUF_SIZE - toCopy;
+    std::cout << "[recvr::saveResidualToPending] offs: " << offset << "; toCopy: " << toCopy << '\n';
+    std::copy(m_messageBuffer.begin() + offset, m_messageBuffer.end(), std::back_inserter(m_pending));
+    std::cout << "[recvr::saveResidualToPending] pending size: " << m_pending.size() << '\n';
+  }
+
+  //================================================================================
+  void processReadedData() {
+    std::cout << "[recvr::procRdData] in                        mbrOff          mbrSize           dynOffs\n";
+
+    for (int i = m_nextMemberIndex; i < m_memberInfo.size(); ++i) {
+      Deployka::MemberInfo& mi = m_memberInfo[i];
+      std::cout << "[recvr::procRdData] "
+         << std::setw(30) << mi.memberOffset
+         << std::setw(17) << mi.memberSize
+         << std::setw(17) << m_dynamicOffset
+         << '\n';
+
+      if (m_msgReceived < mi.memberOffset + mi.memberSize + m_dynamicOffset
+        && (i > m_nextMemberIndex || i == 0)) {
+        m_nextMemberIndex = i;
+        m_consumed += mi.memberOffset + m_dynamicOffset;
+        saveResidualToPending();
+        std::cout << "[recvr::procRdData] Next member (" << i << ") is not received yet; consumed " << m_consumed << "\n";
+        break;
+      }
+
+      if (m_msgReceived >= mi.memberOffset + mi.memberSize + m_dynamicOffset // mi.memberOffset + m_dynamicOffset == m_consumed
+        && !mi.done)
+      { //std::cout << "mo: " << mi.memberOffset << "; ms: " << mi.memberSize  << "; dynoffset: " << m_dynamicOffset << '\n';
+
+        mi.buffer.reserve(mi.memberSize);
+        if (mi.memberSize < m_pending.size()) {
+          std::cout << "[recvr::procRdData] ERROR pending size cannot be more than member size!";
+        }
+        if (!m_pending.empty()) {
+          size_t thisBufDataSize = mi.memberSize - m_pending.size();
+          std::cout << "[recvr::procRdData] thisBufDataSize " << thisBufDataSize << "\n";
+          std::copy(m_pending.begin(), m_pending.end(), std::back_inserter(mi.buffer));
+          std::copy(m_messageBuffer.begin(), m_messageBuffer.begin() + thisBufDataSize, std::back_inserter(mi.buffer));
+          m_pending.clear();
+        }
+        else {
+          auto arrayItBeg = m_messageBuffer.begin() + mi.memberOffset + m_dynamicOffset - m_consumed;
+          std::copy(arrayItBeg, arrayItBeg + mi.memberSize, std::back_inserter(mi.buffer));
+        }
+
+        mi.done = true;
+
+        switch (mi.memberType) {
+        case Deployka::MT_longLong: {
+          long long int val = 0;
+          memcpy(&val, mi.buffer.data(), mi.memberSize);
+          std::cout << "[recvr::procRdData] long long val: " << val << '\n';
+          break;
+        }
+        case Deployka::MT_longDouble: {
+          long double val = 0;
+          memcpy(&val, mi.buffer.data(), mi.memberSize);
+          std::cout << "[recvr::procRdData] long double val: " << val << '\n';
+          break;
+        }
+        case Deployka::MT_dynamic: {
+          //Deployka::printDynamic(mi);
+          Deployka::printString(mi.buffer);
+
+          m_dynamicOffset += mi.memberSize;
+          
+          break;
+        }
+        case Deployka::MT_dynamicSize: {
+          if ((i < m_memberInfo.size()-1)
+            && (m_memberInfo[i + 1].memberType == Deployka::MT_dynamic))
+          {
+            size_t & dynamicMemberSize = m_memberInfo[i + 1].memberSize;
+            memcpy(&dynamicMemberSize, mi.buffer.data(), mi.memberSize);
+
+            std::cout << "[recvr::procRdData] dynamic SIZE: " << m_memberInfo[i+1].memberSize << "\n";
+          }
+          break;
+        }
+        }
+      }
+    }
+
+    Deployka::MemberInfo& mi = m_memberInfo.back();
+
+    size_t processedMsgSize = mi.memberOffset + mi.memberSize;
+    std::cout << "[recvr::procRdData] Total message size: " << processedMsgSize
+              << "; message received " << m_msgReceived << '\n';
+
+
+    std::vector<unsigned char> tmp;
+    //auto startIt = 
+    tmp.reserve(RECV_BUF_SIZE - processedMsgSize);
+    tmp.assign(m_messageBuffer.begin() + processedMsgSize, m_messageBuffer.end());
+    //m_consumed += processedMsgSize;
+    if (processedMsgSize < m_msgReceived) {
+      // cleanup
+      cleanupReceiveState();
+
+      receive(tmp.data(), tmp.size());
+    }
+
+    std::cout << "[recvr::procRdData] out\n";
+  }
+};
+
+/******************************************************************************//*
+*
+*********************************************************************************/
+class DeploykaTcpConnection: public boost::enable_shared_from_this<DeploykaTcpConnection> {
+
+  std::array<unsigned char, RECV_BUF_SIZE> m_receiveBuffer;
+
+  DeploykaMessageReceiver m_messageReceiver;
+
+  boost::asio::ip::tcp::socket m_sock;
+
+  //================================================================================
+  DeploykaTcpConnection(boost::asio::io_context& ctx)
+    : m_sock(ctx)
+  {
+    m_receiveBuffer.fill(0);
   }
 
 public:
@@ -95,109 +285,6 @@ public:
   }
 
   //================================================================================
-  void saveResidualToPending() {
-    if (m_consumed >= m_msgReceived) {
-      return;
-    }
-    size_t toCopy = std::min(m_msgReceived - m_consumed, RECV_BUF_SIZE);
-    size_t offset = RECV_BUF_SIZE - toCopy;
-    std::cout << "[conn::saveResidualToPending] offs: " << offset << "; toCopy: " << toCopy << '\n';
-    std::copy(m_messageBuffer.begin() + offset, m_messageBuffer.end(), std::back_inserter(m_pending));
-    std::cout << "[conn::saveResidualToPending] pending size: " << m_pending.size() << '\n';
-  }
-
-  //================================================================================
-  void processReadedData() {
-    std::cout << "[conn::procRdData] in\n";
-
-    for (int i = m_nextMemberIndex; i < m_memberInfo.size(); ++i) {
-      Deployka::MemberInfo& mi = m_memberInfo[i];
-      std::cout << "[conn::procRdData] "
-        "               mbrOff: " << mi.memberOffset << "; mbrSize: " << mi.memberSize << "; dynOffs: " << m_dynamicOffset << '\n';
-
-      if (m_msgReceived < mi.memberOffset + mi.memberSize + m_dynamicOffset
-        && (i > m_nextMemberIndex || i == 0)) {
-        m_nextMemberIndex = i;
-        m_consumed += mi.memberOffset + m_dynamicOffset;
-        saveResidualToPending();
-        std::cout << "[conn::procRdData] Next member (" << i << ") is not received yet; consumed " << m_consumed << "\n";
-        break;
-      }
-
-      if (m_msgReceived >= mi.memberOffset + mi.memberSize + m_dynamicOffset // mi.memberOffset + m_dynamicOffset == m_consumed
-        && !mi.done)
-      { //std::cout << "mo: " << mi.memberOffset << "; ms: " << mi.memberSize  << "; dynoffset: " << m_dynamicOffset << '\n';
-
-        mi.buffer.reserve(mi.memberSize);
-        if (mi.memberSize < m_pending.size()) {
-          std::cout << "ERROR pending size cannot be more than member size!";
-        }
-        if (!m_pending.empty()) {
-          size_t thisBufDataSize = mi.memberSize - m_pending.size();
-          std::cout << "[conn::procRdData] thisBufDataSize " << thisBufDataSize << "\n";
-          std::copy(m_pending.begin(), m_pending.end(), std::back_inserter(mi.buffer));
-          std::copy(m_messageBuffer.begin(), m_messageBuffer.begin() + thisBufDataSize, std::back_inserter(mi.buffer));
-          m_pending.clear();
-        }
-        else {
-          auto arrayItBeg = m_messageBuffer.begin() + mi.memberOffset + m_dynamicOffset - m_consumed;
-          std::copy(arrayItBeg, arrayItBeg + mi.memberSize, std::back_inserter(mi.buffer));
-        }
-
-        mi.done = true;
-
-        switch (mi.memberType) {
-        case Deployka::MT_longLong: {
-          long long int val = 0;
-          memcpy(&val, mi.buffer.data(), mi.memberSize);
-          std::cout << "[conn::procRdData] long long val: " << val << '\n';
-          break;
-        }
-        case Deployka::MT_longDouble: {
-          long double val = 0;
-          memcpy(&val, mi.buffer.data(), mi.memberSize);
-          std::cout << "[conn::procRdData] long double val: " << val << '\n';
-          break;
-        }
-        case Deployka::MT_dynamic: {
-          std::string val(mi.buffer.begin(), mi.buffer.end());
-          //val.reserve(mi.buffer.size());
-          //for (size_t j = 0; j < mi.memberSize; j++) {
-          //  val.push_back(*(mi.buffer.data() + j));
-          //}
-          val.back() = '\0';
-
-          if (val.size() > 515) {
-            size_t endClamp = val.size() - 256;
-            std::cout << "[conn::procRdData] dynamic VAL (offset: " << m_dynamicOffset << "): " << val.substr(0, 256) << "\n...\n" << val.substr(endClamp) << "[end val]\n";
-          }
-          else {
-            std::cout << "[conn::procRdData] dynamic VAL (offset: " << m_dynamicOffset << "): " << val << "[end val]\n";
-          }
-
-          m_dynamicOffset += mi.memberSize;
-          
-          break;
-        }
-        case Deployka::MT_dynamicSize: {
-          if ((i < m_memberInfo.size()-1)
-            && (m_memberInfo[i + 1].memberType == Deployka::MT_dynamic))
-          {
-            size_t & dynamicMemberSize = m_memberInfo[i + 1].memberSize;
-            memcpy(&dynamicMemberSize, mi.buffer.data(), mi.memberSize);
-
-            std::cout << "[conn::procRdData] dynamic SIZE: \"" << m_memberInfo[i+1].memberSize << "\"\n";
-          }
-          break;
-        }
-        }
-      }
-    }
-
-    std::cout << "[conn::procRdData] out\n";
-  }
-
-  //================================================================================
   void handleRead(boost::system::error_code const& ec, size_t received) {
     std::cout << "[conn::handleRead]=====this: 0x" << this << "==========================\n";
     if (ec) {
@@ -205,48 +292,9 @@ public:
       return;
     }
 
-    //if (m_msgReceived - m_consumed + received > 8196) {
-    //  std::cout << "[conn::handleRead] ERROR! Receive buffer overflow!\n";
-    //  std::cout << "[conn::handleRead] m_msgReceived: " << m_msgReceived << "; this received: " << received << "; total message buf size: " << 8196 << '\n';
-    //  cleanupReceiveState();
-    //  return;
-    //}
+    m_messageReceiver.receive(m_receiveBuffer.data(), received);
 
-    //memcpy(m_messageBuffer.data() + m_msgReceived - m_consumed, m_receiveBuffer.data(), received);
-
-    memcpy(m_messageBuffer.data(), m_receiveBuffer.data(), received);
-
-    m_msgReceived += received;
-
-    std::cout << "[conn::handleRead] received: " << received << "; msgReceived: " << m_msgReceived << "; consumed: " << m_consumed << '\n';
-
-    if (m_currentMessageType == Deployka::DMT_Null
-      && m_msgReceived >= sizeof(m_currentMessageType))
-    {
-      // here we copy always from zero offset
-      memcpy(&m_currentMessageType, m_messageBuffer.data(), sizeof(m_currentMessageType));
-
-      if (m_currentMessageType >= Deployka::MessageType::DMT_MessageTypeMax) {
-        std::cout << "[conn::handleRead] ERROR: message type received is " << m_currentMessageType << '\n';
-        throw std::logic_error("Wrong message type");
-      }
-
-      std::cout << "[conn::handleRead] received command: >>>>>>" << m_currentMessageType << "<<<<<<\n";
-      m_memberInfo.clear();
-      Deployka::MessageType msgType = (Deployka::MessageType)m_currentMessageType;
-      m_memberInfo = Deployka::buildMemberInfo(Deployka::g_commands.at(msgType));
-    }
-
-    // process rest of received data in m_messageBuffer
-
-    processReadedData();
-
-    // if all command is received: cleanup receive state
-    if (std::all_of(m_memberInfo.cbegin(), m_memberInfo.cend(), [](Deployka::MemberInfo const& mi) { return mi.done; })) {
-      cleanupMemberInfo();
-      cleanupReceiveState();
-      std::cout << "[conn::handleRead] after cleanup received state\n";
-    }
+    //m_messageReceiver.done();
 
     m_sock.async_receive(boost::asio::buffer(m_receiveBuffer),
       boost::bind(&DeploykaTcpConnection::handleRead,
@@ -299,7 +347,7 @@ public:
 *
 *********************************************************************************/
 int main() {
-  std::cout << "Hello from Target Agent!" << std::endl;
+  std::ostream::sync_with_stdio(false);
   boost::asio::io_context context;
   try {
     DeploykaTcpServer server(context);
