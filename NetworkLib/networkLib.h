@@ -93,8 +93,8 @@ namespace Deployka {
 
     ReceiveBuffer();
 
-    size_t write(unsigned char* data, size_t dataSize);
-    size_t readFromOffsetToEnd(unsigned char* data, size_t offset);
+    size_t initialize(unsigned char const* data, size_t dataSize);
+    size_t readFromOffsetToEnd(unsigned char* data, size_t offset) const;
     size_t pop(size_t count);
   };
 
@@ -109,9 +109,13 @@ namespace Deployka {
     ReceiveStream();
 
     void addBuffer(unsigned char const* data, size_t dataSize, size_t offset = ULLONG_MAX);
-    size_t getFromOffset(unsigned char* destBuf, size_t count, size_t offset);
+    size_t getFromOffset(unsigned char* destBuf, size_t count, size_t offset) const;
     size_t popData(size_t count);
     size_t readAndPop(unsigned char* destBuf, size_t count); // offset is always minOffset
+    size_t readAndPop(std::vector<unsigned char>& destBuf, size_t count); // offset is always minOffset
+
+    void resetOffsets();
+    bool empty() const;
   };
 }
 #endif

@@ -27,7 +27,6 @@ inline void clearMemberInfo(std::vector<Deployka::MemberInfo>& miVec) {
     item.buffer.clear();
     return item;
   });
-
 }
 
 template <typename T>
@@ -85,6 +84,12 @@ boost::system::error_code sendMessage(ip::tcp::socket & sock, std::vector<Deploy
     if (ec.value() != 0) {
       return ec;
     }
+    if (item.memberType == Deployka::MT_dynamic) {
+      Deployka::printString(item.buffer);
+    }
+    else {
+      Deployka::printHex(item.buffer);
+    }
     totalSent += aConstBuffer.size();
     std::cout << std::setw(9) << aConstBuffer.size() << std::setw(9) << totalSent << '\n';
   }
@@ -113,8 +118,7 @@ void sendFileCommand(ip::tcp::socket& sock, std::string filename) {
   std::vector<Deployka::MemberInfo> memInfo = Deployka::buildMemberInfo(Deployka::g_commands.at((Deployka::MessageType)longLongBuf));
 
   // member #1
-  char const* cmdPtr = (char*)&longLongBuf;
-  std::copy(cmdPtr, cmdPtr + memInfo[0].memberSize, std::back_inserter(memInfo[0].buffer));
+  serializeToMember(memInfo[0], longLongBuf);
 
   std::ifstream ifs;
   ifs.open(filename, std::ios_base::binary | std::ios_base::ate);
@@ -125,8 +129,7 @@ void sendFileCommand(ip::tcp::socket& sock, std::string filename) {
   ifs.seekg(0, std::ios_base::beg);
 
   // member #2
-  /*char const* */cmdPtr = (char*)&longLongBuf;
-  std::copy(cmdPtr, cmdPtr + memInfo[1].memberSize, std::back_inserter(memInfo[1].buffer));
+  serializeToMember(memInfo[1], longLongBuf);
 
   // member #3
   memInfo[2].buffer.reserve(longLongBuf);
@@ -134,12 +137,10 @@ void sendFileCommand(ip::tcp::socket& sock, std::string filename) {
   std::copy(std::istreambuf_iterator<char>(ifs), std::istreambuf_iterator<char>(), std::back_inserter(memInfo[2].buffer));
 
   // member #4
-  /*size_t*/ longLongBuf = filename.size();
-  /*char const**/ cmdPtr = (char*)&longLongBuf;
-  std::copy(cmdPtr, cmdPtr + memInfo[3].memberSize, std::back_inserter(memInfo[3].buffer));
+  serializeToMember(memInfo[3], filename.size());
 
   // member #5
-  std::copy(filename.begin(), filename.end(), std::back_inserter(memInfo[4].buffer));
+  serializeToMember<std::string&>(memInfo[4], filename);
 
   sendMessage(sock, memInfo);
 }
@@ -233,7 +234,6 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
       break;
     }
 
-
     // member #0 file chunk command
     serializeToMember(memInfoVec[0], fileChunkCommand);
     // member #1 file name length
@@ -252,8 +252,6 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
     serializeToMember(memInfoVec[7], bytesRead);
     // member #8 file chunk
     serializeToMember(memInfoVec[8], buffer.get(), bytesRead);
-
-    //Deployka::printString(memInfoVec[8].buffer);
 
     boost::system::error_code ec = sendMessage(sock, memInfoVec);
     if (ec.value() != 0) {
@@ -295,6 +293,8 @@ int main(int argc, char* argv[]) {
     return -1;
   }
 
+  std::cout << "Enter q to quit; h to send chukned file; g to send small file\n";
+
   io_context context;
 
   ip::tcp::resolver resolver(context);
@@ -306,9 +306,8 @@ int main(int argc, char* argv[]) {
 
     ip::tcp::socket sock(context);
 
-    connect(sock, gaiResults);
-
-    for (char c = '\0'; c != 'q'; std::cin >> c) {
+    for (char c = static_cast<char>(std::cin.get()); c != 'q'; std::cin >> c) {
+      connect(sock, gaiResults);
       if (c == 'l') {
         std::cout << "send ints\n";
         sendArithmeticOrEnum(sock, 1337);
@@ -335,7 +334,8 @@ int main(int argc, char* argv[]) {
         sendArithmeticOrEnum<long double>(sock, 3.14159265358979);
       }
       if (c == 'g') {
-        char const fileName[] = "CMakeLists.txt";
+        //char const fileName[] = "CMakeLists.txt";
+        char const fileName[] = "someotherfile.txt";
         sendFileCommand(sock, fileName);
       }
       if (c == 'h') {
@@ -345,6 +345,9 @@ int main(int argc, char* argv[]) {
       }
 
       std::cout << "Enter q to quit; h to send chukned file; g to send small file\n";
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(400));
+      sock.close();
     }
   }
   catch (std::exception & e) {

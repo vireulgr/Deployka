@@ -1,6 +1,7 @@
 #include "networkLib.h"
 #include <iostream>
 #include <iomanip>
+//#include <cassert>
 
 namespace Deployka {
 
@@ -85,13 +86,16 @@ namespace Deployka {
     bufData.fill(0);
   }
 
-  size_t ReceiveBuffer::write(unsigned char* data, size_t dataSize) {
-    size_t writeCount = std::min(dataSize, bufSize);
+  size_t ReceiveBuffer::initialize(unsigned char const* data, size_t dataSize) {
+    size_t writeCount = std::min(dataSize, RECV_BUF_SIZE);
     auto it = std::copy(data, data + writeCount, bufData.data());
-    return std::distance(bufData.data(), it);
+    auto dist = std::distance(bufData.data(), it);
+    //assert(static_cast<size_t>(dist) == writeCount);
+    bufSize = writeCount;
+    return dist;
   }
 
-  size_t ReceiveBuffer::readFromOffsetToEnd(unsigned char* data, size_t offset) {
+  size_t ReceiveBuffer::readFromOffsetToEnd(unsigned char* data, size_t offset) const {
     unsigned char * resPtr = std::copy(bufData.begin() + offset, bufData.end(), data);
     return resPtr - data;
   }
@@ -108,7 +112,7 @@ namespace Deployka {
     bufSize -= count;
 
     auto it = std::copy(bufData.begin() + count, bufData.end(), bufData.begin());
-    return std::distance(bufData.begin(), it);
+    return RECV_BUF_SIZE - std::distance(bufData.begin(), it);
   }
 
   /******************************************************************************//*
@@ -119,50 +123,60 @@ namespace Deployka {
     : minOffset(0)
     , maxOffset(0)
   {}
+  
+  bool ReceiveStream::empty() const {
+    return buffers.empty();
+  }
+
+  void ReceiveStream::resetOffsets() {
+    minOffset = 0;
+    maxOffset = 0;
+  }
 
   void ReceiveStream::addBuffer(unsigned char const* data, size_t dataSize, size_t offset) {
 
-    offset = (offset != ULLONG_MAX)? offset : (maxOffset == 0)? 0 : maxOffset + 1;
+    offset = (offset != ULLONG_MAX) ? offset : (maxOffset == 0) ? 0 : maxOffset; //?? +1;
 
     ReceiveBuffer drb;
     drb.bufOffset = offset;
-    drb.bufSize = dataSize;
-    std::copy(data, data + dataSize, drb.bufData.begin());
+    drb.initialize(data, dataSize);
 
     buffers.emplace_back(std::move(drb));
 
     minOffset = std::min(minOffset, offset);
     maxOffset = std::max(maxOffset, offset + dataSize);
+
+    std::cout << "[RecvStream::addBuffer] min off: " << minOffset << "; max off: " << maxOffset << '\n';
   }
 
-
-  size_t ReceiveStream::getFromOffset(unsigned char* destBuf, size_t count, size_t offset) {
+  size_t ReceiveStream::getFromOffset(unsigned char* destBuf, size_t count, size_t offset) const {
+    std::cout << "[RecvStream::getFromOff] min off: " << minOffset << "; max off: " << maxOffset << '\n';
     if (offset > maxOffset || offset < minOffset) {
       return 0;
     }
 
     size_t destPutOffset = 0;
 
-    for (auto bufIt = buffers.begin(); bufIt != buffers.end(); ++bufIt) {
-      std::cout << "offs " << offset << "; count: " << count << '\n';
+    for (auto bufIt = buffers.cbegin(); bufIt != buffers.cend(); ++bufIt) {
+      std::cout << "[RecvStream::getFromOff] r offs " << offset << "; r count: " << count << '\n';
 
-      size_t& off = bufIt->bufOffset;
-      size_t& sz = bufIt->bufSize;
+      size_t const & off = bufIt->bufOffset;
+      size_t const & sz = bufIt->bufSize;
 
-      std::cout << "c offs " << off << "; c count: " << sz << '\n';
+      std::cout << "[RecvStream::getFromOff] c offs " << off << "; c count: " << sz << '\n';
       if (off <= offset && offset < off + sz) {
-        std::array<unsigned char, RECV_BUF_SIZE> & aBuf = bufIt->bufData;
+        std::array<unsigned char, RECV_BUF_SIZE> const & aBuf = bufIt->bufData;
         size_t localFrom = (offset - off);
         size_t localTo = std::min((offset + count), (off + sz)) - off;
 
-        std::cout << "l from: " << localFrom << "; l to: " << localTo << '\n';
+        std::cout << "[RecvStream::getFromOff] l from: " << localFrom << "; l to: " << localTo << '\n';
 
         auto startIt = aBuf.begin() + localFrom;
         auto endIt = aBuf.begin() + localTo;
 
         std::copy(startIt, endIt, destBuf + destPutOffset);
 
-        offset = std::min((offset + count), (off + sz)) - off + 1;
+        offset = offset + (std::min((offset + count), (off + sz)) - off); //?? +1;
         count = count - (localTo - localFrom);
         destPutOffset += localTo - localFrom;
       }
@@ -175,7 +189,7 @@ namespace Deployka {
   }
 
   size_t ReceiveStream::popData(size_t count) {
-    std::cout << "pop count: " << count << '\n';
+    std::cout << "[RecvStream::popData] pop count: " << count << '\n';
 
     auto bufIt = buffers.begin();
     while (bufIt != buffers.end() && count != 0) {
@@ -206,11 +220,11 @@ namespace Deployka {
     }
 
     if (buffers.empty()) {
-      minOffset = maxOffset = 0;
+      minOffset = maxOffset;
     }
     else {
       if (bufIt != buffers.end()) {
-        std::cout << "cur buf it offset: " << bufIt->bufOffset << "; min offset: " << minOffset << '\n';
+        std::cout << "[RecvStream::popData] c off: " << bufIt->bufOffset << "; min offset: " << minOffset << '\n';
         minOffset = std::max(bufIt->bufOffset, minOffset);
       }
       else {
@@ -221,8 +235,19 @@ namespace Deployka {
     return count;
   }
 
+  size_t ReceiveStream::readAndPop(std::vector<unsigned char> & destBuf, size_t count) {// offset is always minOffset
+    std::cout << "[RecvStream::readAndPop] vector version\n";
+    std::unique_ptr<unsigned char[]> tmpBuf = std::make_unique<unsigned char[]>(count);
+    
+    size_t result = readAndPop(tmpBuf.get(), count);
+
+    destBuf.assign(tmpBuf.get(), tmpBuf.get() + count);
+
+    return result;
+  }
+
   size_t ReceiveStream::readAndPop(unsigned char* destBuf, size_t count) {// offset is always minOffset
-    std::cout << "read and pop count: " << count << "; off: " << minOffset << '\n';
+    std::cout << "[RecvStream::readAndPop] count: " << count << "; off: " << minOffset << "; max Off: " << maxOffset << '\n';
     size_t result = getFromOffset(destBuf, count, minOffset);
 
     size_t toPop = result;
