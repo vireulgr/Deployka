@@ -8,23 +8,17 @@
 #include <iostream>
 #include <iomanip>
 #include <map>
+#include <climits>
+
+//#define _TESTS_
+
+#ifdef _TESTS_
+#include "tests.h"
+#endif
 //#include "boost/asio/impl/src.hpp"
 
 #include "networkLib.h"
 
-constexpr size_t RECV_BUF_SIZE = 8196;
-
-/******************************************************************************//*
-*
-*********************************************************************************/
-//struct DeploykaReceiveBuffer {
-//  size_t bufferOffset; // offset of buffer in message
-//  size_t bufferSize; // buffer size
-//  //size_t readOffsetInBuffer;
-//  size_t getDataFromMessageOffset(size_t msgOff, size_t dataSize);
-//  size_t getDataFromBufferOffset(size_t msgOff, size_t dataSize);
-//  std::array<unsigned char, RECV_BUF_SIZE> m_buffer;
-//};
 
 /******************************************************************************//*
 *
@@ -32,14 +26,15 @@ constexpr size_t RECV_BUF_SIZE = 8196;
 struct DeploykaMessageReceiver {
   std::vector<Deployka::MemberInfo> m_memberInfo;
 
-  std::array<unsigned char, RECV_BUF_SIZE> m_messageBuffer;
+  std::array<unsigned char, Deployka::RECV_BUF_SIZE> m_messageBuffer;
   std::vector<unsigned char> m_pending;
+
+  Deployka::ReceiveStream drs;
 
   int m_nextMemberIndex;
   size_t m_consumed;
   size_t m_msgReceived;
   size_t m_dynamicOffset; // sum of length of all dynamic data members that has been processed so far
-  size_t m_curBufOffset;
 
   Deployka::MessageType m_currentMessageType;
 
@@ -78,9 +73,9 @@ struct DeploykaMessageReceiver {
 
   //================================================================================
   void receive(unsigned char const* data, size_t dataSize) {
-    memcpy(m_messageBuffer.data(), data, dataSize);
+    drs.addBuffer(data, dataSize);
+    //memcpy(m_messageBuffer.data(), data, dataSize);
 
-    m_curBufOffset = m_msgReceived;
     m_msgReceived += dataSize;
 
     std::cout << "[recvr::receive] received: " << dataSize << "; msgReceived: " << m_msgReceived << "; consumed: " << m_consumed << '\n';
@@ -92,18 +87,20 @@ struct DeploykaMessageReceiver {
       memcpy(&m_currentMessageType, m_messageBuffer.data(), sizeof(m_currentMessageType));
 
       if (m_currentMessageType >= Deployka::MessageType::DMT_MessageTypeMax) {
-        std::vector<unsigned char> vec;
-        vec.reserve(m_msgReceived);
-        vec.assign(m_messageBuffer.begin(), m_messageBuffer.begin()+m_msgReceived);
-        Deployka::printHex(vec);
+        // DEBUG
+        //std::vector<unsigned char> vec;
+        //vec.reserve(m_msgReceived);
+        //vec.assign(m_messageBuffer.begin(), m_messageBuffer.begin()+m_msgReceived);
+        //Deployka::printHex(vec);
 
-        vec.assign(m_messageBuffer.begin(), m_messageBuffer.begin() + 44);
-        Deployka::printString(vec);
+        //vec.assign(m_messageBuffer.begin(), m_messageBuffer.begin() + 44);
+        //Deployka::printString(vec);
 
-        std::transform(m_messageBuffer.begin() + 44, m_messageBuffer.begin() + m_msgReceived, m_messageBuffer.begin(), [](char c) { return c; });
+        //std::transform(m_messageBuffer.begin() + 44, m_messageBuffer.begin() + m_msgReceived, m_messageBuffer.begin(), [](char c) { return c; });
 
-        memcpy(&m_currentMessageType, m_messageBuffer.data(), sizeof(m_currentMessageType));
-        std::cout << "cur msg type: " << m_currentMessageType << '\n';
+        //memcpy(&m_currentMessageType, m_messageBuffer.data(), sizeof(m_currentMessageType));
+        //std::cout << "cur msg type: " << m_currentMessageType << '\n';
+        // /DEBUG
 
         std::cout << "[recvr::receive] ERROR: message type received is " << m_currentMessageType << '\n';
         throw std::logic_error("Wrong message type");
@@ -133,8 +130,8 @@ struct DeploykaMessageReceiver {
       return;
     }
 
-    size_t toCopy = std::min(m_msgReceived - m_consumed, RECV_BUF_SIZE);
-    size_t offset = RECV_BUF_SIZE - toCopy;
+    size_t toCopy = std::min(m_msgReceived - m_consumed, Deployka::RECV_BUF_SIZE);
+    size_t offset = Deployka::RECV_BUF_SIZE - toCopy;
     std::cout << "[recvr::saveResidualToPending] offs: " << offset << "; toCopy: " << toCopy << '\n';
     std::copy(m_messageBuffer.begin() + offset, m_messageBuffer.end(), std::back_inserter(m_pending));
     std::cout << "[recvr::saveResidualToPending] pending size: " << m_pending.size() << '\n';
@@ -228,7 +225,7 @@ struct DeploykaMessageReceiver {
 
     std::vector<unsigned char> tmp;
     //auto startIt = 
-    tmp.reserve(RECV_BUF_SIZE - processedMsgSize);
+    tmp.reserve(Deployka::RECV_BUF_SIZE - processedMsgSize);
     tmp.assign(m_messageBuffer.begin() + processedMsgSize, m_messageBuffer.end());
     //m_consumed += processedMsgSize;
     if (processedMsgSize < m_msgReceived) {
@@ -247,7 +244,7 @@ struct DeploykaMessageReceiver {
 *********************************************************************************/
 class DeploykaTcpConnection: public boost::enable_shared_from_this<DeploykaTcpConnection> {
 
-  std::array<unsigned char, RECV_BUF_SIZE> m_receiveBuffer;
+  std::array<unsigned char, Deployka::RECV_BUF_SIZE> m_receiveBuffer;
 
   DeploykaMessageReceiver m_messageReceiver;
 
@@ -343,15 +340,22 @@ public:
   }
 };
 
+
 /******************************************************************************//*
 *
 *********************************************************************************/
 int main() {
   std::ostream::sync_with_stdio(false);
+
+#ifdef _TESTS_
+  TEST::readAndPop_twoBuffers();
+  TEST::getFromOffset();
+  TEST::readAndPop_twice();
+#else
   boost::asio::io_context context;
   try {
     DeploykaTcpServer server(context);
-    //
+
     std::cout << "[main]                after server creation\n";
 
     context.run();
@@ -361,6 +365,7 @@ int main() {
   catch (std::exception& e) {
     std::cerr << "exception in main: " << e.what() << std::endl;
   }
+#endif
 
   return 0;
 }

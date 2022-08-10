@@ -3,6 +3,8 @@
 #include <map>
 #include <vector>
 #include <string>
+#include <list>
+#include <array>
 // CLIENT REQUEST
 // size_t  | size_t   | array<char, dataSize> |
 // command | dataSize | serialized data       |
@@ -14,6 +16,7 @@
 namespace Deployka {
 
   int constexpr TCP_PORT = 27182;
+  size_t constexpr RECV_BUF_SIZE = 8196;
 
   struct FileMessage {
     std::string name;
@@ -78,5 +81,37 @@ namespace Deployka {
   // TODO интерфейс для извлечения частей команды из буфера в MemberInfo
   // TODO function receive member info vector
   // TODO function send member info vector
+
+
+  /******************************************************************************//*
+  *
+  *********************************************************************************/
+  struct ReceiveBuffer {
+    size_t bufOffset; // offset of buffer in message
+    size_t bufSize; // buffer size
+    std::array<unsigned char, RECV_BUF_SIZE> bufData;
+
+    ReceiveBuffer();
+
+    size_t write(unsigned char* data, size_t dataSize);
+    size_t readFromOffsetToEnd(unsigned char* data, size_t offset);
+    size_t pop(size_t count);
+  };
+
+  /******************************************************************************//*
+  *
+  *********************************************************************************/
+  struct ReceiveStream {
+    size_t minOffset;
+    size_t maxOffset;
+    std::list<ReceiveBuffer> buffers;
+
+    ReceiveStream();
+
+    void addBuffer(unsigned char const* data, size_t dataSize, size_t offset = ULLONG_MAX);
+    size_t getFromOffset(unsigned char* destBuf, size_t count, size_t offset);
+    size_t popData(size_t count);
+    size_t readAndPop(unsigned char* destBuf, size_t count); // offset is always minOffset
+  };
 }
 #endif
