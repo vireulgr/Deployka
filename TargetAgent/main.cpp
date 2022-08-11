@@ -7,11 +7,20 @@
 
 #include <vector>
 #include <iostream>
+#include <fstream>
 #include <iomanip>
 #include <map>
 #include <climits>
 
 #include "networkLib.h"
+
+#ifdef _MSC_VER
+//#define WIN32_LEAN_AND_MEAN
+#include <Shlwapi.h>
+#pragma comment(lib, "Shlwapi.lib")
+#else
+#include <filesystem>
+#endif
 
 //#define _TESTS_
 
@@ -19,6 +28,53 @@
 #include "tests.h"
 #endif
 //#include "boost/asio/impl/src.hpp"
+
+void processFileChunkMessage(std::vector<Deployka::MemberInfo>& message) {
+
+  if (message.empty()) {
+    std::cout << "[procFileChunkMsg] message is corrupted!\n";
+    return;
+  }
+
+  Deployka::MemberInfo& mi = message.front();
+  long long int val = 0;
+  memcpy(&val, mi.buffer.data(), mi.memberSize);
+  if (val != Deployka::DMT_FileChunk) {
+    std::cout << "message is corrupted!\n";
+    return;
+  }
+
+  std::string receivedFilePath;
+  receivedFilePath.reserve(message[2].memberSize);
+  std::copy(message[2].buffer.begin(), message[2].buffer.end(), std::back_inserter(receivedFilePath));
+
+  std::string directoryToPutFiles = "./uploads";
+  std::cout << "[procFileChunkMsg] filename: " << receivedFilePath << '\n';
+
+#ifdef _MSC_VER
+  if (!PathIsDirectory(directoryToPutFiles.c_str())) {
+    std::cout << "directory " << directoryToPutFiles << " not exists\n";
+    if (!CreateDirectory(directoryToPutFiles.c_str(), NULL)) {
+      std::cout << "ERROR! Cannot create directory! GLE" << GetLastError() << '\n';
+    }
+  }
+#else
+  // TODO
+#endif
+
+  size_t pos = receivedFilePath.find_last_of("/\\");
+  std::string fileName = directoryToPutFiles + '/' + receivedFilePath.substr((pos == std::string::npos) ? 0 : (pos + 1));
+
+  std::ofstream ofs;
+  ofs.open(fileName, std::ios_base::binary | std::ios_base::app);
+
+  if (ofs.is_open()) {
+    ofs.write(reinterpret_cast<char*>(message[8].buffer.data()), message[8].buffer.size());
+    if (ofs.bad()) {
+      std::cout << "[proceFileChunkMsg] bad bit is set!\n";
+    }
+  }
+}
 
 
 /******************************************************************************//*
@@ -30,6 +86,7 @@ struct DeploykaMessageReceiver {
   Deployka::ReceiveStream drs;
 
   size_t m_msgReceived;
+  bool m_msgReceiveComplete;
   size_t m_dynamicOffset; // sum of length of all dynamic data members that has been processed so far
   int m_nextMemberIndex;
 
@@ -37,22 +94,21 @@ struct DeploykaMessageReceiver {
 
   DeploykaMessageReceiver() 
     : m_msgReceived(0)
+    , m_msgReceiveComplete(false)
     , m_dynamicOffset(0)
     , m_nextMemberIndex(0)
     , m_currentMessageType(Deployka::DMT_Null)
   { }
 
   //================================================================================
-  void cleanupMemberInfo() {
-    std::transform(
-      m_memberInfo.begin(),
-      m_memberInfo.end(),
-      m_memberInfo.begin(),
-      [] (Deployka::MemberInfo& mi) {
-        mi.buffer.clear();
-        mi.done = false;
-        return mi; 
-      });
+  bool done() const {
+    return m_msgReceiveComplete;
+  }
+
+  //================================================================================
+
+  std::vector<Deployka::MemberInfo> getMemberInfo() {
+    return std::move(m_memberInfo);
   }
 
   //================================================================================
@@ -84,9 +140,7 @@ struct DeploykaMessageReceiver {
 
       std::cout << "[recvr::receive] received command: >>>>>>" << m_currentMessageType << "<<<<<<\n";
       m_memberInfo.clear();
-      Deployka::MessageType msgType = (Deployka::MessageType)m_currentMessageType;
-      m_memberInfo = Deployka::buildMemberInfo(Deployka::g_commands.at(msgType));
-      m_memberInfo[0].done = true;
+      m_memberInfo = Deployka::buildMemberInfo((Deployka::MessageType)m_currentMessageType);
       m_nextMemberIndex = 1; // first (0) is already readed as m_currentMessageType
     }
 
@@ -94,12 +148,14 @@ struct DeploykaMessageReceiver {
     processReadedData();
 
     // if all command is received: cleanup receive state
-    if (std::all_of(m_memberInfo.cbegin(), m_memberInfo.cend(), [](Deployka::MemberInfo const& mi) { return mi.done; })) {
-      cleanupMemberInfo();
+    if (!m_memberInfo.empty()
+      && std::all_of(m_memberInfo.cbegin(), m_memberInfo.cend(), [](Deployka::MemberInfo const& mi) { return mi.done; })) {
       if (drs.empty()) {
+        drs.resetOffsets();
         std::cout << "[recvr::receive] stream is empty\n";
         cleanupReceiveState();
       }
+      m_msgReceiveComplete = true; 
       m_currentMessageType = Deployka::DMT_Null;
       std::cout << "[recvr::receive] after cleanup received state\n";
     }
@@ -107,22 +163,22 @@ struct DeploykaMessageReceiver {
 
   //================================================================================
   void processReadedData() {
-    std::cout << "[recvr::procRdData] in               done?    mbrOff          mbrSize           dynOffs\n";
+    //std::cout << "[recvr::procRdData] in               done?    mbrOff          mbrSize           dynOffs\n";
 
     for (int i = m_nextMemberIndex; i < m_memberInfo.size(); ++i) {
       Deployka::MemberInfo& mi = m_memberInfo[i];
-      std::cout << "[recvr::procRdData] "
-         << std::setw(20) << std::boolalpha << mi.done << std::noboolalpha
-         << std::setw(10) << mi.memberOffset
-         << std::setw(17) << mi.memberSize
-         << std::setw(17) << m_dynamicOffset
-         << '\n';
+      //std::cout << "[recvr::procRdData] "
+      //   << std::setw(20) << std::boolalpha << mi.done << std::noboolalpha
+      //   << std::setw(10) << mi.memberOffset
+      //   << std::setw(17) << mi.memberSize
+      //   << std::setw(17) << m_dynamicOffset
+      //   << '\n';
 
       if (m_msgReceived < mi.memberOffset + mi.memberSize + m_dynamicOffset
         && (i > m_nextMemberIndex || i == 1))
       {
         m_nextMemberIndex = i;
-        std::cout << "[recvr::procRdData] Next member (" << i << ") is not received yet; max offset: "<< drs.maxOffset << "\n";
+        //std::cout << "[recvr::procRdData] Next member (" << i << ") is not received yet; max offset: "<< drs.maxOffset << "\n";
         break;
       }
 
@@ -139,24 +195,22 @@ struct DeploykaMessageReceiver {
         mi.done = true;
 
         switch (mi.memberType) {
-        case Deployka::MT_longLong: {
-          long long int val = 0;
-          memcpy(&val, mi.buffer.data(), mi.memberSize);
-          std::cout << "[recvr::procRdData] long long val: " << val << '\n';
-          break;
-        }
-        case Deployka::MT_longDouble: {
-          long double val = 0;
-          memcpy(&val, mi.buffer.data(), mi.memberSize);
-          std::cout << "[recvr::procRdData] long double val: " << val << '\n';
-          break;
-        }
+        //case Deployka::MT_longLong: {
+        //  long long int val = 0;
+        //  memcpy(&val, mi.buffer.data(), mi.memberSize);
+        //  std::cout << "[recvr::procRdData] long long val: " << val << '\n';
+        //  break;
+        //}
+        //case Deployka::MT_longDouble: {
+        //  long double val = 0;
+        //  memcpy(&val, mi.buffer.data(), mi.memberSize);
+        //  std::cout << "[recvr::procRdData] long double val: " << val << '\n';
+        //  break;
+        //}
         case Deployka::MT_dynamic: {
-          std::cout << "[recvr::procRdData] dynamic ";
-          Deployka::printString(mi.buffer);
-
+          //std::cout << "[recvr::procRdData] dynamic ";
+          //Deployka::printString(mi.buffer);
           m_dynamicOffset += mi.memberSize;
-          
           break;
         }
         case Deployka::MT_dynamicSize: {
@@ -165,22 +219,14 @@ struct DeploykaMessageReceiver {
           {
             size_t & dynamicMemberSize = m_memberInfo[i + 1].memberSize;
             memcpy(&dynamicMemberSize, mi.buffer.data(), mi.memberSize);
-
-            std::cout << "[recvr::procRdData] dynamic SIZE: " << m_memberInfo[i+1].memberSize << "\n";
+            //std::cout << "[recvr::procRdData] dynamic SIZE: " << m_memberInfo[i+1].memberSize << "\n";
           }
           break;
         }
         }
       }
     }
-
-    Deployka::MemberInfo& mi = m_memberInfo.back();
-
-    size_t processedMsgSize = mi.memberOffset + m_dynamicOffset;
-    std::cout << "[recvr::procRdData] Total message size: " << processedMsgSize
-              << "; message received " << m_msgReceived << '\n';
-
-    std::cout << "[recvr::procRdData] out\n";
+    //std::cout << "[recvr::procRdData] out\n";
   }
 };
 
@@ -227,6 +273,27 @@ public:
   }
 
   //================================================================================
+  void processMessage(std::vector<Deployka::MemberInfo>& message) {
+    if (message.empty()) {
+      std::cout << "message is corrupted!\n";
+      return;
+    }
+    Deployka::MemberInfo& mi = message.front();
+    long long int val = 0;
+    memcpy(&val, mi.buffer.data(), mi.memberSize);
+    if (val >= Deployka::DMT_MessageTypeMax || val < Deployka::DMT_Null) {
+      std::cout << "message is corrupted!\n";
+      return;
+    }
+
+    switch (val) {
+    case Deployka::DMT_FileChunk:
+      ::processFileChunkMessage(message);
+      break;
+    }
+  }
+
+  //================================================================================
   void handleRead(boost::system::error_code const& ec, size_t received) {
     std::cout << "[conn::handleRead]=====this: 0x" << this << "==========================\n";
     if (ec) {
@@ -236,7 +303,11 @@ public:
 
     m_messageReceiver.receive(m_receiveBuffer.data(), received);
 
-    //m_messageReceiver.done();
+    if (m_messageReceiver.done()) {
+      std::vector<Deployka::MemberInfo> message = m_messageReceiver.getMemberInfo();
+      std::cout << "[conn::processMsg] msgSize: " << message.size() << '\n';
+      processMessage(message);
+    }
 
     m_sock.async_receive(boost::asio::buffer(m_receiveBuffer),
       boost::bind(&DeploykaTcpConnection::handleRead,

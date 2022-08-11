@@ -21,14 +21,6 @@
 
 using namespace boost::asio;
 
-inline void clearMemberInfo(std::vector<Deployka::MemberInfo>& miVec) {
-  std::transform(miVec.begin(), miVec.end(), miVec.begin(), [](Deployka::MemberInfo& item) {
-    item.done = false;
-    item.buffer.clear();
-    return item;
-  });
-}
-
 template <typename T>
 inline void serializeToMember(Deployka::MemberInfo& mi, T val) {
   static_assert(std::is_arithmetic<T>::value || std::is_enum<T>::value, "Type is not suitable");
@@ -76,7 +68,7 @@ boost::system::error_code sendBuffer(ip::tcp::socket &sock, const_buffer & bf) {
 
 // ================================================================================
 boost::system::error_code sendMessage(ip::tcp::socket & sock, std::vector<Deployka::MemberInfo> & mi) {
-  std::cout << "      sent |    total\n";
+  //std::cout << "      sent |    total\n";
   size_t totalSent = 0;
   for (Deployka::MemberInfo& item : mi) {
     const_buffer aConstBuffer = buffer(item.buffer);
@@ -84,15 +76,16 @@ boost::system::error_code sendMessage(ip::tcp::socket & sock, std::vector<Deploy
     if (ec.value() != 0) {
       return ec;
     }
-    if (item.memberType == Deployka::MT_dynamic) {
-      Deployka::printString(item.buffer);
-    }
-    else {
-      Deployka::printHex(item.buffer);
-    }
+    //if (item.memberType == Deployka::MT_dynamic) {
+    //  Deployka::printString(item.buffer);
+    //}
+    //else {
+    //  Deployka::printHex(item.buffer);
+    //}
     totalSent += aConstBuffer.size();
-    std::cout << std::setw(9) << aConstBuffer.size() << std::setw(9) << totalSent << '\n';
+    //std::cout << std::setw(9) << aConstBuffer.size() << std::setw(9) << totalSent << '\n';
   }
+  std::cout << "Send message total sent: " << std::setw(9) << totalSent << '\n';
   return boost::system::error_code();
 }
 
@@ -115,10 +108,10 @@ void sendArithmeticOrEnum(ip::tcp::socket& sock, T value) {
 // ================================================================================
 void sendFileCommand(ip::tcp::socket& sock, std::string filename) {
   long long int longLongBuf = Deployka::DMT_File;
-  std::vector<Deployka::MemberInfo> memInfo = Deployka::buildMemberInfo(Deployka::g_commands.at((Deployka::MessageType)longLongBuf));
+  std::vector<Deployka::MemberInfo> memInfo = Deployka::buildMemberInfo((Deployka::MessageType)longLongBuf);
 
   // member #1
-  serializeToMember(memInfo[0], longLongBuf);
+  //serializeToMember(memInfo[0], longLongBuf);
 
   std::ifstream ifs;
   ifs.open(filename, std::ios_base::binary | std::ios_base::ate);
@@ -152,7 +145,7 @@ void sendFileCommand(ip::tcp::socket& sock, std::string filename) {
 void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
 
   size_t const fileChunkCommand = Deployka::DMT_FileChunk;
-  std::vector<Deployka::MemberInfo> memInfoVec = Deployka::buildMemberInfo(Deployka::g_commands.at((Deployka::MessageType)fileChunkCommand));
+  std::vector<Deployka::MemberInfo> memInfoVec = Deployka::buildMemberInfo((Deployka::MessageType)fileChunkCommand);
 
   std::string fileLastModTimeIsoStr;
   long long unsigned int fileSize = 0ull;
@@ -235,7 +228,7 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
     }
 
     // member #0 file chunk command
-    serializeToMember(memInfoVec[0], fileChunkCommand);
+    //serializeToMember(memInfoVec[0], fileChunkCommand);
     // member #1 file name length
     serializeToMember(memInfoVec[1], filename.size());
     // member #2 file name
@@ -258,15 +251,7 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
       break;
     }
 
-    clearMemberInfo(memInfoVec);
-
-    // DEBUG
-    //std::this_thread::sleep_for(std::chrono::milliseconds(800));
-
-    //if (bytesRead > 0) {
-    //  break;
-    //}
-    // /DEBUG
+    Deployka::clearMemberInfo(memInfoVec);
   }
 
 #ifdef _MSC_VER
@@ -339,8 +324,8 @@ int main(int argc, char* argv[]) {
         sendFileCommand(sock, fileName);
       }
       if (c == 'h') {
-        //char const fileName[] = "E:\\prog\\cpp\\Deployka\\build\\TargetAgent\\Debug\\TargetAgent.pdb";
-        char const fileName[] = "E:\\prog\\cpp\\Deployka\\somefile.txt";
+        char const fileName[] = "E:\\prog\\cpp\\Deployka\\build\\TargetAgent\\Debug\\TargetAgent.pdb";
+        //char const fileName[] = "E:\\prog\\cpp\\Deployka\\somefile.txt";
         sendFileChunkedCommand(sock, fileName);
       }
 

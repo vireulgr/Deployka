@@ -73,7 +73,8 @@ namespace Deployka {
     // TODO
   };
 
-  std::vector<MemberInfo> buildMemberInfo(std::vector<MemberType> const mt);
+  std::vector<MemberInfo> buildMemberInfo(MessageType mt2);
+  void clearMemberInfo(std::vector<MemberInfo> & miVec);
 
   void printHex(std::vector<unsigned char>& vec);
   void printString(std::vector<unsigned char>& vec);
@@ -81,7 +82,6 @@ namespace Deployka {
   // TODO интерфейс для извлечения частей команды из буфера в MemberInfo
   // TODO function receive member info vector
   // TODO function send member info vector
-
 
   /******************************************************************************//*
   *
