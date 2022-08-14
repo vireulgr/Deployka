@@ -7,8 +7,10 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 
+namespace pt = boost::property_tree;
+namespace po = boost::program_options;
 
-struct Target {
+struct DeployArtifact {
   std::string m_name;
   std::string m_pathToDir;
   std::vector<std::string> m_dependencies;
@@ -28,13 +30,15 @@ std::ostream& operator << (std::ostream& os, std::vector<T> const& vec) {
     return os;
 }
 
-std::ostream& operator << (std::ostream& os, Target const& aTarget) {
-  os << aTarget.m_name.c_str() << " (" << aTarget.m_pathToDir.c_str() << ")\n";
-  os << aTarget.m_dependencies << '\n';
+std::ostream& operator << (std::ostream& os, DeployArtifact const& aTarget) {
+  os << aTarget.m_name << " (" << aTarget.m_pathToDir << ")\n";
+  os << "\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n";
+  os << aTarget.m_dependencies;
+  os << "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
   return os;
 }
 
-std::vector<Target> g_targets;
+std::vector<DeployArtifact> g_targets;
 
 // Опции:
 // 1) путь к папке с конфигом
@@ -49,6 +53,8 @@ std::vector<Target> g_targets;
 // Если там какие нибудь glob параметры или параметры типа "всю папку мне запили" то это необходимо преобразовать к просто списку
 //     фйалов для обработки
 //
+// Преобразование из какого-то формата задания в конкретный список файлов должно происходить перед передачей по сети/копированием в папку,
+//     т.к. на этапе чтения конфига не известно какие именно файлы нужны из тех, что подходят под шаблон (например, не известно свежий ли файл)
 //
 // Если нужно прост положить в папку назначения
 //     Для каждого файла:
@@ -66,17 +72,17 @@ std::vector<Target> g_targets;
 //         добавить имя целевой папки
 //         отправить по сети
 //
+// сформировать список файлов в соответствии с шаблонами в конфиге
+// прочитать имена и даны обновления
+// отправить этот список на целевую ВМ
+// там подождать ответа
 //
-
-namespace pt = boost::property_tree;
-namespace po = boost::program_options;
 
 int main(int argc, char * argv[]) {
 
   std::string configFile;
 
   try {
-
   po::options_description desc("Collect Artifacts command line arguments");
   desc.add_options()
     ("help", "print help message")
@@ -123,7 +129,7 @@ int main(int argc, char * argv[]) {
   if (vm.count("target")) {
     std::vector<std::string> vec = vm["target"].as<std::vector<std::string>>();
 
-    std::cout << "targets:     " << vec << std::endl;
+    //std::cout << "targets:     " << vec << std::endl;
   }
 
   /// LOAD XML and parse targets
@@ -132,38 +138,38 @@ int main(int argc, char * argv[]) {
 
   pt::read_xml(configFile, aTree);
 
-  for (pt::ptree::value_type & v : aTree.get_child("Root.Targets")) {
+  for (pt::ptree::value_type & targetNode : aTree.get_child("Root.Targets")) {
 
-    Target aTarget;
+    DeployArtifact aTarget;
 
-    aTarget.m_name = v.second.get<std::string>("Name");
-    aTarget.m_pathToDir = v.second.get<std::string>("PathToDirectory");
-    for (pt::ptree::value_type& v2 : v.second.get_child("Dependencies")) {
-      //size_t srcStrSize = v2.first.size();
+    aTarget.m_name = targetNode.second.get<std::string>("Name");
+    aTarget.m_pathToDir = targetNode.second.get<std::string>("PathToDirectory");
+    for (pt::ptree::value_type& dependencyNode : targetNode.second.get_child("Dependencies")) {
+      //size_t srcStrSize = dependencyNode.first.size();
       //std::unique_ptr<wchar_t[]> tmpWCharBuf = std::make_unique<wchar_t[]>(srcStrSize);
-      //std::mbstowcs(tmpWCharBuf.get(), v2.first.c_str(), srcStrSize);
+      //std::mbstowcs(tmpWCharBuf.get(), dependencyNode.first.c_str(), srcStrSize);
 
       //std::cout
-      //  << "f: " << v2.first << "; "
-      //  << "s: " << v2.second.data() << "; "
-      //  << "xmlattrs: " << v2.second.count("<xmlattr>") << "\n";
+      //  << "f: " << dependencyNode.first << "; "
+      //  << "s: " << dependencyNode.second.data() << "; "
+      //  << "xmlattrs: " << dependencyNode.second.count("<xmlattr>") << "\n";
 
-      if (v2.second.count("<xmlattr>")) {
+      if (dependencyNode.second.count("<xmlattr>")) {
         std::cout
-          << "rd: " << v2.second.count("RootDir") << "; "
-          << "pat: " << v2.second.count("Pattern") << ";\n";
+          << "rd: " << dependencyNode.second.count("RootDir") << "; "
+          << "pat: " << dependencyNode.second.count("Pattern") << ";\n";
 
-        pt::ptree::value_type & xmlAttrVal = v2.second.get_child("<xmlattr>").front();
-        //pt::ptree::value_type & xmlRootDir = v2.second.get_child("RootDir").front();
-        //pt::ptree::value_type & xmlPattern = v2.second.get_child("Pattern").front();
+        pt::ptree::value_type & xmlAttrVal = dependencyNode.second.get_child("<xmlattr>").front();
+        //pt::ptree::value_type & xmlRootDir = dependencyNode.second.get_child("RootDir").front();
+        //pt::ptree::value_type & xmlPattern = dependencyNode.second.get_child("Pattern").front();
 
-        std::cout << xmlAttrVal.first << " " << xmlAttrVal.second.data() << '\n';
+        std::cout << xmlAttrVal.first << " => " << xmlAttrVal.second.data() << '\n';
         //std::cout << xmlRootDir.first << "\n";
         //std::cout << xmlPattern.first << "\n";
       }
 
-      if (v2.first == "Dependency") {
-        aTarget.m_dependencies.emplace_back(v2.second.data());
+      if (dependencyNode.first == "Dependency") {
+        aTarget.m_dependencies.emplace_back(dependencyNode.second.data());
       }
     }
 
@@ -171,6 +177,7 @@ int main(int argc, char * argv[]) {
     g_targets.emplace_back(std::move(aTarget));
   }
 
+  std::cout << g_targets;
 
   } // /TRY
   catch(std::exception& e) {
