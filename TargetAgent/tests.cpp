@@ -6,7 +6,7 @@
 
 
 namespace TEST {
-  char const g_samplePacket[] = "\x01\x00\x00\x00\x00\x00\x00\x00" // file message type
+  char const g_sampleMessage[] = "\x01\x00\x00\x00\x00\x00\x00\x00" // file message type
                                 "\x5c\x00\x00\x00\x00\x00\x00\x00" // file data size
                                 "\x53\x6f\x6d\x65\x20\x6f\x74\x68\x65\x72\x20\x66\x69\x6c\x65\x20" // file data
                                 "\x63\x6f\x6e\x74\x65\x6e\x74\x2e\x0d\x0a\x54\x68\x65\x20\x71\x75"
@@ -63,8 +63,51 @@ namespace TEST {
 
 
 // ================================================================================
+void printBuffersBoundries(Deployka::ReceiveStream & drs) {
+
+  std::cout << "Buffers boundries:\n";
+
+  size_t curBufSize = 0;
+
+  for (auto it = drs.buffers.begin(); it != drs.buffers.end(); ++it) {
+    curBufSize = it->bufSize;
+    std::cout << "cur buf size: " << curBufSize << '\n';
+    Deployka::printHexRange(it->bufData.data(), 0, 7);
+    std::cout << "... ";
+    Deployka::printHexRange(it->bufData.data(), curBufSize-7, curBufSize);
+    std::cout << '\n';
+  }
+}
+
+
+// ================================================================================
 inline unsigned char * cleanupCharArray(unsigned char* ptr, size_t size) {
   return std::transform(ptr, ptr + size, ptr, [](unsigned char) { return '\0'; });
+}
+
+// ================================================================================
+void readManyBytes() {
+  struct MyGenerator {
+    unsigned char curValue;
+    MyGenerator() : curValue(0) {}
+    unsigned char operator()() {
+      return curValue++;
+    }
+  };
+
+  std::cout << __FUNCTION__ << '\n';
+  MyGenerator generatorState;
+
+  size_t constexpr bufSize = 1ull << 16 ;
+  std::unique_ptr<unsigned char[]>aBuffer = std::make_unique<unsigned char[]>(bufSize);
+
+  std::transform(aBuffer.get(), aBuffer.get() + bufSize, aBuffer.get(), [&generatorState](char) { return generatorState(); });
+
+  Deployka::ReceiveStream drs;
+
+  drs.addBuffer(aBuffer.get(), bufSize);
+
+  printBuffersBoundries(drs);
 }
 
 // ================================================================================
@@ -83,11 +126,7 @@ void getFromOffset() {
 
   rcvStream.getFromOffset(myBuffer.get(), myBufSize, 19);
 
-  std::vector<unsigned char> tmp;
-  tmp.reserve(myBufSize);
-  tmp.assign(myBuffer.get(), myBuffer.get() + myBufSize);
-
-  Deployka::printHex(tmp);
+  Deployka::printHex(myBuffer.get(), myBufSize);
 }
 
 // ================================================================================
@@ -107,11 +146,7 @@ void readAndPop_twoBuffers() {
 
   std::cout << "Read and pop result: " << result << '\n';
 
-  std::vector<unsigned char> tmp;
-  tmp.reserve(myBufSize);
-  tmp.assign(myBuffer.get(), myBuffer.get() + myBufSize);
-
-  Deployka::printHex(tmp);
+  Deployka::printHex(myBuffer.get(), myBufSize);
 }
 
 // ================================================================================
@@ -131,11 +166,7 @@ void readAndPop_twice() {
 
   std::cout << "Read and pop result: " << result << '\n';
 
-  std::vector<unsigned char> tmp;
-  tmp.reserve(myBufSize);
-  tmp.assign(myBuffer.get(), myBuffer.get() + myBufSize);
-
-  Deployka::printHex(tmp);
+  Deployka::printHex(myBuffer.get(), myBufSize);
 
   cleanupCharArray(myBuffer.get(), myBufSize);
 
@@ -143,10 +174,6 @@ void readAndPop_twice() {
 
   std::cout << "Read and pop result: " << result << '\n';
 
-  /*std::vector<unsigned char>*/ tmp;
-  tmp.reserve(myBufSize);
-  tmp.assign(myBuffer.get(), myBuffer.get() + myBufSize);
-
-  Deployka::printHex(tmp);
+  Deployka::printHex(myBuffer.get(), myBufSize);
 }
 }

@@ -60,6 +60,13 @@ void processFileChunkMessage(std::vector<Deployka::MemberInfo>& message) {
   }
 #else
   // TODO
+  boost::system::error_code ec;
+  if (!exists(directoryToPutFiles)) {
+    if (!create_directory(directoryToPutFiles, ec)) {
+      throw std:exception(ec);
+    }
+  }
+    is_directory(directoryToPutFiles)) {}
 #endif
 
   size_t pos = receivedFilePath.find_last_of("/\\");
@@ -367,6 +374,7 @@ int main() {
   TEST::readAndPop_twoBuffers();
   TEST::getFromOffset();
   TEST::readAndPop_twice();
+  TEST::readManyBytes();
 #else
   boost::asio::io_context context;
   try {

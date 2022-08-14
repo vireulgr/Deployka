@@ -16,7 +16,7 @@
 namespace Deployka {
 
   int constexpr TCP_PORT = 27182;
-  size_t constexpr RECV_BUF_SIZE = 8196;
+  size_t constexpr RECV_BUF_SIZE = 8192;
 
   struct FileMessage {
     std::string name;
@@ -76,7 +76,11 @@ namespace Deployka {
   std::vector<MemberInfo> buildMemberInfo(MessageType mt2);
   void clearMemberInfo(std::vector<MemberInfo> & miVec);
 
+  void printHexRange(unsigned char const * buf, size_t start, size_t count);
+  void printHexRange(std::vector<unsigned char> const & vec, size_t start, size_t count);
+
   void printHex(std::vector<unsigned char>& vec);
+  void printHex(unsigned char const* buf, size_t bufSize);
   void printString(std::vector<unsigned char>& vec);
 
   // TODO интерфейс для извлечения частей команды из буфера в MemberInfo
@@ -87,6 +91,9 @@ namespace Deployka {
   *
   *********************************************************************************/
   struct ReceiveBuffer {
+  protected:
+    size_t dataOffset;
+  public:
     size_t bufOffset; // offset of buffer in message
     size_t bufSize; // buffer size
     std::array<unsigned char, RECV_BUF_SIZE> bufData;

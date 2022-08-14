@@ -71,32 +71,78 @@ namespace Deployka {
     std::cout << "<<<<<<<\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
   }
 
+
+  //================================================================================
+  void printHexRange(std::vector<unsigned char> const & buf, size_t start, size_t count) {
+    std::cout << std::hex << std::setfill('0');
+    size_t minCount = std::min(0ull, buf.size() - start - count);
+    size_t minStart = std::min(start, buf.size());
+    for (size_t i = minStart; i < minCount; i++) {
+      std::cout << "0x" <<  std::setw(2) << static_cast<unsigned int>(buf[i]) << ' ';
+      if ((i + 1) % 16 == 0) {
+        std::cout << '\n';
+      }
+    }
+    std::cout << std::dec << std::setfill(' ');
+  }
+
+  //================================================================================
+  void printHexRange(unsigned char const * buf, size_t start, size_t count) {
+    std::cout << std::hex << std::setfill('0');
+    for (size_t i = start; i < count; i++) {
+      std::cout << "0x" <<  std::setw(2) << static_cast<unsigned int>(buf[i]) << ' ';
+      if ((i + 1) % 16 == 0) {
+        std::cout << '\n';
+      }
+    }
+    std::cout << std::dec << std::setfill(' ');
+  }
+
+  //================================================================================
+  void printHex(unsigned char const * buf, size_t bufSize) {
+    std::cout << "HEX:\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n";
+    if (bufSize > 262) {
+      size_t endClamp = bufSize - 128;
+      printHexRange(buf, 0, 128);
+      std::cout << "\n...\n";
+      printHexRange(buf, endClamp, bufSize);
+    }
+    else {
+      printHexRange(buf, 0, bufSize);
+    }
+    std::cout << "<<<<<<<\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
+  }
+
+  //================================================================================
   void printHex(std::vector<unsigned char> & vec) {
     std::cout << "HEX:\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n";
     std::cout << std::hex << std::setfill('0');
     if (vec.size() > 262) {
       size_t endClamp = vec.size() - 128;
-      for (size_t i = 0; i < 128; i++) {
-        std::cout << "0x" <<  std::setw(2) << static_cast<unsigned int>(vec[i]) << ' ';
-        if ((i + 1) % 16 == 0) {
-          std::cout << '\n';
-        }
-      }
+      printHexRange(vec, 0, 128);
+      //for (size_t i = 0; i < 128; i++) {
+      //  std::cout << "0x" <<  std::setw(2) << static_cast<unsigned int>(vec[i]) << ' ';
+      //  if ((i + 1) % 16 == 0) {
+      //    std::cout << '\n';
+      //  }
+      //}
       std::cout << "\n...\n";
-      for (size_t i = endClamp; i < vec.size(); i++) {
-        std::cout << "0x" <<  std::setw(2) << static_cast<unsigned int>(vec[i]) << ' ';
-        if ((i + 1 )% 16 == 0) {
-          std::cout << '\n';
-        }
-      }
+      printHexRange(vec, endClamp, vec.size());
+      //for (size_t i = endClamp; i < vec.size(); i++) {
+      //  std::cout << "0x" <<  std::setw(2) << static_cast<unsigned int>(vec[i]) << ' ';
+      //  if ((i + 1 )% 16 == 0) {
+      //    std::cout << '\n';
+      //  }
+      //}
     }
     else {
-      for (size_t i = 0; i < vec.size(); i++) {
-        std::cout << "0x" <<  std::setw(2) << static_cast<unsigned int>(vec[i]) << ' ';
-        if ((i + 1 )% 16 == 0) {
-          std::cout << '\n';
-        }
-      }
+      printHexRange(vec, 0, vec.size());
+      //for (size_t i = 0; i < vec.size(); i++) {
+      //  std::cout << "0x" <<  std::setw(2) << static_cast<unsigned int>(vec[i]) << ' ';
+      //  if ((i + 1 )% 16 == 0) {
+      //    std::cout << '\n';
+      //  }
+      //}
     }
     std::cout << "<<<<<<<\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
     std::cout << std::dec << std::setfill(' ');
@@ -108,6 +154,7 @@ namespace Deployka {
   ReceiveBuffer::ReceiveBuffer()
     : bufOffset(0)
     , bufSize(0)
+    , dataOffset(0)
   {
     bufData.fill(0);
   }
@@ -122,15 +169,16 @@ namespace Deployka {
   }
 
   size_t ReceiveBuffer::readFromOffsetToEnd(unsigned char* data, size_t offset) const {
-    unsigned char * resPtr = std::copy(bufData.begin() + offset, bufData.end(), data);
+    unsigned char * resPtr = std::copy(bufData.begin() + offset + dataOffset, bufData.end(), data);
     return resPtr - data;
   }
 
   size_t ReceiveBuffer::pop(size_t count) {
-    std::cout << "[recvBuffer]::pop count: " << count << "; bufSize: " << bufSize << "; off: " << bufOffset << '\n';
+    //std::cout << "[recvBuffer]::pop count: " << count << "; bufSize: " << bufSize << "; off: " << bufOffset << '\n';
     if (count > bufSize) {
       size_t tmp = bufSize;
       bufOffset = bufOffset + bufSize;
+      dataOffset += bufSize;
       bufSize = 0;
       return tmp;
     }
@@ -138,8 +186,8 @@ namespace Deployka {
     bufOffset += count;
     bufSize -= count;
 
-    auto it = std::copy(bufData.begin() + count, bufData.end(), bufData.begin());
-    return RECV_BUF_SIZE - std::distance(bufData.begin(), it);
+    dataOffset += count;
+    return count;
   }
 
   /******************************************************************************//*
@@ -170,14 +218,23 @@ namespace Deployka {
   }
 
   void ReceiveStream::addBuffer(unsigned char const* data, size_t dataSize, size_t offset) {
-
     offset = (offset != ULLONG_MAX) ? offset : (maxOffset == 0) ? 0 : maxOffset; //?? +1;
 
-    ReceiveBuffer drb;
-    drb.bufOffset = offset;
-    drb.initialize(data, dataSize);
+    size_t toWrite = dataSize;
+    size_t curBufOffset = offset;
 
-    buffers.emplace_back(std::move(drb));
+    while (toWrite > 0) {
+      ReceiveBuffer drb;
+
+      size_t curBufDataSize = std::min(toWrite, RECV_BUF_SIZE);
+      drb.bufOffset = curBufOffset;
+      drb.initialize(data + curBufOffset, curBufDataSize);
+
+      toWrite -= curBufDataSize;
+      curBufOffset += curBufDataSize;
+
+      buffers.emplace_back(std::move(drb));
+    }
 
     minOffset = std::min(minOffset, offset);
     maxOffset = std::max(maxOffset, offset + dataSize);
@@ -256,7 +313,7 @@ namespace Deployka {
     return count;
   }
 
-  size_t ReceiveStream::readAndPop(std::vector<unsigned char> & destBuf, size_t count) {// offset is always minOffset
+  size_t ReceiveStream::readAndPop(std::vector<unsigned char> & destBuf, size_t count) { // offset is always minOffset
     //std::cout << "[RecvStream::readAndPop] vector version\n";
     std::unique_ptr<unsigned char[]> tmpBuf = std::make_unique<unsigned char[]>(count);
     
@@ -267,7 +324,7 @@ namespace Deployka {
     return result;
   }
 
-  size_t ReceiveStream::readAndPop(unsigned char* destBuf, size_t count) {// offset is always minOffset
+  size_t ReceiveStream::readAndPop(unsigned char* destBuf, size_t count) { // offset is always minOffset
     //std::cout << "[RecvStream::readAndPop] count: " << count << "; off: " << minOffset << "; max Off: " << maxOffset << '\n';
     size_t result = getFromOffset(destBuf, count, minOffset);
 

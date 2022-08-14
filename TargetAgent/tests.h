@@ -5,6 +5,6 @@ namespace TEST {
   void getFromOffset();
   void readAndPop_twoBuffers();
   void readAndPop_twice();
+  void readManyBytes();
 }
-
 #endif
