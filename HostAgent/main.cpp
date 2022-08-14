@@ -2,6 +2,7 @@
 #define BOOST_ASIO_NO_TS_EXECUTORS
 #include "boost/asio.hpp"
 #include "boost/bind.hpp"
+
 #include <fstream>
 #include <iostream>
 #include <streambuf>
@@ -9,7 +10,9 @@
 #include <iomanip>
 #include <algorithm>
 
-#ifdef _MSC_VER
+#define USE_WIN_NATIVE_FILE_IO
+
+#if defined(_MSC_VER) && defined(USE_WIN_NATIVE_FILE_IO)
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #else
@@ -151,7 +154,7 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
   long long unsigned int fileSize = 0ull;
   long long unsigned int chunkSize = (1ull << 13) - 256; // 
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && defined(USE_WIN_NATIVE_FILE_IO)
   size_t converted;
   std::unique_ptr<wchar_t[]> wcBuf = std::make_unique<wchar_t[]>(MAX_PATH);
   /*errno_t cvtErr = */mbstowcs_s(&converted, wcBuf.get(), MAX_PATH, filename.c_str(), _TRUNCATE);
