@@ -1,4 +1,3 @@
-#include <iostream>
 #define BOOST_ASIO_NO_DEPRECATED
 #define BOOST_ASIO_NO_TS_EXECUTORS
 #include "boost/asio.hpp"
@@ -6,79 +5,254 @@
 #include "boost/enable_shared_from_this.hpp"
 #include "boost/shared_ptr.hpp"
 
-#include "..\common\DeploykaNet.h"
+#include <vector>
+#include <iostream>
+#include <fstream>
+#include <iomanip>
+#include <map>
+#include <climits>
+
+#include "networkLib.h"
+
+#ifdef _MSC_VER
+//#define WIN32_LEAN_AND_MEAN
+#include <Shlwapi.h>
+#pragma comment(lib, "Shlwapi.lib")
+#else
+#include <filesystem>
+#endif
+
+//#define _TESTS_
+
+#ifdef _TESTS_
+#include "tests.h"
+#endif
 //#include "boost/asio/impl/src.hpp"
 
-namespace Deployka {
-  enum MemberType {
-    MT_notype = 0,
-    MT_dynamic = 0,
-    MT_stringSize,
-    MT_bool,
-    MT_longLong,
-    MT_longDouble
-  };
+void processFileChunkMessage(std::vector<Deployka::MemberInfo>& message) {
 
-  struct MemberInfo {
-    MemberType memberType;
-    bool done;
-    size_t memberOffset;
-    size_t memberSize;
-    std::vector<unsigned char> buffer;
-  };
+  if (message.empty()) {
+    std::cout << "[procFileChunkMsg] message is corrupted!\n";
+    return;
+  }
 
-  constexpr size_t g_memberTypeSizes[] = {0, sizeof(size_t), sizeof(bool), sizeof(long long), sizeof(long double)};
+  Deployka::MemberInfo& mi = message.front();
+  long long int val = 0;
+  memcpy(&val, mi.buffer.data(), mi.memberSize);
+  if (val != Deployka::DMT_FileChunk) {
+    std::cout << "message is corrupted!\n";
+    return;
+  }
 
-  std::vector<MemberInfo> buildMemberInfo(std::vector<MemberType> mt) {
-    std::vector<MemberInfo> result;
-    size_t memberOffset = 0;
-    for (auto const& item : mt) {
-      MemberInfo mi;
-      mi.memberType = item;
-      mi.memberOffset = memberOffset;
-      mi.memberSize = g_memberTypeSizes[item];
-      mi.done = false;
+  std::string receivedFilePath;
+  receivedFilePath.reserve(message[2].memberSize);
+  std::copy(message[2].buffer.begin(), message[2].buffer.end(), std::back_inserter(receivedFilePath));
 
-      if (mi.memberSize > 0) {
-        mi.buffer.reserve(mi.memberSize);
-      }
+  std::string directoryToPutFiles = "./uploads";
+  std::cout << "[procFileChunkMsg] filename: " << receivedFilePath << '\n';
 
-      memberOffset += mi.memberSize;
-      result.push_back(mi);
+#ifdef _MSC_VER
+  if (!PathIsDirectory(directoryToPutFiles.c_str())) {
+    std::cout << "directory " << directoryToPutFiles << " not exists\n";
+    if (!CreateDirectory(directoryToPutFiles.c_str(), NULL)) {
+      std::cout << "ERROR! Cannot create directory! GLE" << GetLastError() << '\n';
     }
-    return result;
+  }
+#else
+  // TODO
+  boost::system::error_code ec;
+  if (!exists(directoryToPutFiles)) {
+    if (!create_directory(directoryToPutFiles, ec)) {
+      throw std:exception(ec);
+    }
+  }
+    is_directory(directoryToPutFiles)) {}
+#endif
+
+  size_t pos = receivedFilePath.find_last_of("/\\");
+  std::string fileName = directoryToPutFiles + '/' + receivedFilePath.substr((pos == std::string::npos) ? 0 : (pos + 1));
+
+  std::ofstream ofs;
+  ofs.open(fileName, std::ios_base::binary | std::ios_base::app);
+
+  if (ofs.is_open()) {
+    ofs.write(reinterpret_cast<char*>(message[8].buffer.data()), message[8].buffer.size());
+    if (ofs.bad()) {
+      std::cout << "[proceFileChunkMsg] bad bit is set!\n";
+    }
   }
 }
 
 
-class DeploykaTcpConnection: public boost::enable_shared_from_this<DeploykaTcpConnection> {
-
-  std::vector<Deployka::MemberType> m_memberInfoDeclare;
+/******************************************************************************//*
+*
+*********************************************************************************/
+struct DeploykaMessageReceiver {
   std::vector<Deployka::MemberInfo> m_memberInfo;
 
-  std::array<unsigned char, 8196> m_receiveBuffer;
-  std::array<unsigned char, 8196> m_messageBuffer;
+  Deployka::ReceiveStream drs;
 
   size_t m_msgReceived;
+  bool m_msgReceiveComplete;
+  size_t m_dynamicOffset; // sum of length of all dynamic data members that has been processed so far
+  int m_nextMemberIndex;
+
+  Deployka::MessageType m_currentMessageType;
+
+  DeploykaMessageReceiver() 
+    : m_msgReceived(0)
+    , m_msgReceiveComplete(false)
+    , m_dynamicOffset(0)
+    , m_nextMemberIndex(0)
+    , m_currentMessageType(Deployka::DMT_Null)
+  { }
+
+  //================================================================================
+  bool done() const {
+    return m_msgReceiveComplete;
+  }
+
+  //================================================================================
+
+  std::vector<Deployka::MemberInfo> getMemberInfo() {
+    return std::move(m_memberInfo);
+  }
+
+  //================================================================================
+  void cleanupReceiveState() {
+    m_msgReceived = 0;
+    m_dynamicOffset = 0;
+    m_nextMemberIndex = 0;
+    m_currentMessageType = Deployka::DMT_Null;
+  }
+
+  //================================================================================
+  void receive(unsigned char const* data, size_t dataSize) {
+
+    drs.addBuffer(data, dataSize);
+    m_msgReceived = drs.maxOffset;
+
+    std::cout << "[recvr::receive] received: " << dataSize << "; msgReceived: " << m_msgReceived << '\n';
+
+    if (m_currentMessageType == Deployka::DMT_Null
+      && m_msgReceived >= sizeof(m_currentMessageType))
+    {
+      // here we copy always from zero offset
+      drs.readAndPop(reinterpret_cast<unsigned char*>(& m_currentMessageType), sizeof(m_currentMessageType));
+
+      if (m_currentMessageType >= Deployka::MessageType::DMT_MessageTypeMax) {
+        std::cout << "[recvr::receive] ERROR: message type received is " << m_currentMessageType << '\n';
+        throw std::logic_error("Wrong message type");
+      }
+
+      std::cout << "[recvr::receive] received command: >>>>>>" << m_currentMessageType << "<<<<<<\n";
+      m_memberInfo.clear();
+      m_memberInfo = Deployka::buildMemberInfo((Deployka::MessageType)m_currentMessageType);
+      m_nextMemberIndex = 1; // first (0) is already readed as m_currentMessageType
+    }
+
+    // process rest of received data in deployka receive stream
+    processReadedData();
+
+    // if all command is received: cleanup receive state
+    if (!m_memberInfo.empty()
+      && std::all_of(m_memberInfo.cbegin(), m_memberInfo.cend(), [](Deployka::MemberInfo const& mi) { return mi.done; })) {
+      if (drs.empty()) {
+        drs.resetOffsets();
+        std::cout << "[recvr::receive] stream is empty\n";
+        cleanupReceiveState();
+      }
+      m_msgReceiveComplete = true; 
+      m_currentMessageType = Deployka::DMT_Null;
+      std::cout << "[recvr::receive] after cleanup received state\n";
+    }
+  }
+
+  //================================================================================
+  void processReadedData() {
+    //std::cout << "[recvr::procRdData] in               done?    mbrOff          mbrSize           dynOffs\n";
+
+    for (int i = m_nextMemberIndex; i < m_memberInfo.size(); ++i) {
+      Deployka::MemberInfo& mi = m_memberInfo[i];
+      //std::cout << "[recvr::procRdData] "
+      //   << std::setw(20) << std::boolalpha << mi.done << std::noboolalpha
+      //   << std::setw(10) << mi.memberOffset
+      //   << std::setw(17) << mi.memberSize
+      //   << std::setw(17) << m_dynamicOffset
+      //   << '\n';
+
+      if (m_msgReceived < mi.memberOffset + mi.memberSize + m_dynamicOffset
+        && (i > m_nextMemberIndex || i == 1))
+      {
+        m_nextMemberIndex = i;
+        //std::cout << "[recvr::procRdData] Next member (" << i << ") is not received yet; max offset: "<< drs.maxOffset << "\n";
+        break;
+      }
+
+      if (m_msgReceived >= mi.memberOffset + mi.memberSize + m_dynamicOffset
+        && !mi.done)
+      { 
+        mi.buffer.reserve(mi.memberSize);
+        size_t readed = drs.readAndPop(mi.buffer, mi.memberSize);
+
+        if (readed != mi.memberSize) {
+          std::cout << "ERROR readed less data than required! readed: " << readed << "; member size: " << mi.memberSize << "\n";
+        }
+
+        mi.done = true;
+
+        switch (mi.memberType) {
+        //case Deployka::MT_longLong: {
+        //  long long int val = 0;
+        //  memcpy(&val, mi.buffer.data(), mi.memberSize);
+        //  std::cout << "[recvr::procRdData] long long val: " << val << '\n';
+        //  break;
+        //}
+        //case Deployka::MT_longDouble: {
+        //  long double val = 0;
+        //  memcpy(&val, mi.buffer.data(), mi.memberSize);
+        //  std::cout << "[recvr::procRdData] long double val: " << val << '\n';
+        //  break;
+        //}
+        case Deployka::MT_dynamic: {
+          //std::cout << "[recvr::procRdData] dynamic ";
+          //Deployka::printString(mi.buffer);
+          m_dynamicOffset += mi.memberSize;
+          break;
+        }
+        case Deployka::MT_dynamicSize: {
+          if ((i < m_memberInfo.size()-1)
+            && (m_memberInfo[i + 1].memberType == Deployka::MT_dynamic))
+          {
+            size_t & dynamicMemberSize = m_memberInfo[i + 1].memberSize;
+            memcpy(&dynamicMemberSize, mi.buffer.data(), mi.memberSize);
+            //std::cout << "[recvr::procRdData] dynamic SIZE: " << m_memberInfo[i+1].memberSize << "\n";
+          }
+          break;
+        }
+        }
+      }
+    }
+    //std::cout << "[recvr::procRdData] out\n";
+  }
+};
+
+/******************************************************************************//*
+*
+*********************************************************************************/
+class DeploykaTcpConnection: public boost::enable_shared_from_this<DeploykaTcpConnection> {
+
+  std::array<unsigned char, Deployka::RECV_BUF_SIZE> m_receiveBuffer;
+
+  DeploykaMessageReceiver m_messageReceiver;
 
   boost::asio::ip::tcp::socket m_sock;
 
+  //================================================================================
   DeploykaTcpConnection(boost::asio::io_context& ctx)
     : m_sock(ctx)
-    , m_msgReceived(0)
   {
     m_receiveBuffer.fill(0);
-    m_messageBuffer.fill(0);
-
-    m_memberInfoDeclare.push_back(Deployka::MT_longLong);
-    m_memberInfoDeclare.push_back(Deployka::MT_longLong);
-    m_memberInfoDeclare.push_back(Deployka::MT_stringSize);
-    m_memberInfoDeclare.push_back(Deployka::MT_dynamic);
-    m_memberInfoDeclare.push_back(Deployka::MT_stringSize);
-    m_memberInfoDeclare.push_back(Deployka::MT_dynamic);
-    m_memberInfoDeclare.push_back(Deployka::MT_longDouble);
-
-    m_memberInfo = Deployka::buildMemberInfo(m_memberInfoDeclare);
   }
 
 public:
@@ -86,12 +260,14 @@ public:
 
   boost::asio::ip::tcp::socket & socket() { return m_sock; }
 
+  //================================================================================
   static pointer create(boost::asio::io_context& ctx) {
     DeploykaTcpConnection * conn = new DeploykaTcpConnection(ctx);
     std::cout << "[conn::create]          ptr: 0x" << conn << '\n';
     return pointer(conn);
   }
 
+  //================================================================================
   void start() {
 
     std::cout << "[conn::start]          this: 0x" << this << '\n';
@@ -103,70 +279,41 @@ public:
         boost::asio::placeholders::bytes_transferred));
   }
 
-  void handleRead(boost::system::error_code const & ec, size_t received) {
-    std::cout << "[conn::handleRead]=====this: 0x" << this << "========\n";
-    if (ec) {
-      std::cerr << "[conn::handleRead] error:" << ec.what() << " (" << ec.value() << ")\n";
+  //================================================================================
+  void processMessage(std::vector<Deployka::MemberInfo>& message) {
+    if (message.empty()) {
+      std::cout << "message is corrupted!\n";
+      return;
+    }
+    Deployka::MemberInfo& mi = message.front();
+    long long int val = 0;
+    memcpy(&val, mi.buffer.data(), mi.memberSize);
+    if (val >= Deployka::DMT_MessageTypeMax || val < Deployka::DMT_Null) {
+      std::cout << "message is corrupted!\n";
       return;
     }
 
-    memcpy(m_messageBuffer.data() + m_msgReceived, m_receiveBuffer.data(), received);
-    m_msgReceived += received;
+    switch (val) {
+    case Deployka::DMT_FileChunk:
+      ::processFileChunkMessage(message);
+      break;
+    }
+  }
 
-    std::cout << "received: " << received << "; msgReceived: " << m_msgReceived << '\n';
+  //================================================================================
+  void handleRead(boost::system::error_code const& ec, size_t received) {
+    std::cout << "[conn::handleRead]=====this: 0x" << this << "==========================\n";
+    if (ec) {
+      std::cerr << "[conn::handleRead] error: " << ec.what() << " (" << ec.value() << ")\n";
+      return;
+    }
 
-    size_t dynamicOffset = 0;
-    for (int i = 0; i < m_memberInfo.size(); ++i) {
-      Deployka::MemberInfo& mi = m_memberInfo[i];
-      std::cout << "offs: " << mi.memberOffset << "; size: " << mi.memberOffset << '\n';
-      if (m_msgReceived >= mi.memberOffset + mi.memberSize + dynamicOffset
-        && !mi.done)
-      {
-        std::cout
-          << "mo: " << mi.memberOffset
-          << "; ms: " << mi.memberSize
-          << "; dynoffset: " << dynamicOffset << '\n';
+    m_messageReceiver.receive(m_receiveBuffer.data(), received);
 
-        mi.buffer.reserve(mi.memberSize);
-        memcpy(mi.buffer.data(), m_messageBuffer.data() + mi.memberOffset + dynamicOffset, mi.memberSize);
-
-        mi.done = true;
-
-        switch (mi.memberType) {
-        case Deployka::MT_longDouble: {
-          long double val = 0;
-          memcpy(&val, mi.buffer.data(), mi.memberSize);
-          std::cout << "long double val: " << val << '\n';
-          break;
-        }
-        case Deployka::MT_longLong: {
-          long long val = 0;
-          memcpy(&val, mi.buffer.data(), mi.memberSize);
-          std::cout << "long long val: " << val << '\n';
-          break;
-        }
-        case Deployka::MT_dynamic: {
-          std::string val;
-          val.reserve(mi.buffer.size());
-          for (size_t j = 0; j < mi.memberSize; j++) {
-            val.push_back(*(mi.buffer.data() + j));
-          }
-          std::cout << "sz: " << mi.buffer.size() << " dynamic: \"" << val << "\"\n";
-
-          dynamicOffset += mi.memberSize;
-          break;
-        }
-        case Deployka::MT_stringSize: {
-          if ((i < m_memberInfo.size()-1)
-            && (m_memberInfo[i + 1].memberType == Deployka::MT_dynamic))
-          {
-            size_t & dynamicMemberSize = m_memberInfo[i + 1].memberSize;
-            memcpy(&dynamicMemberSize, mi.buffer.data(), mi.memberSize);
-          }
-          break;
-        }
-        }
-      }
+    if (m_messageReceiver.done()) {
+      std::vector<Deployka::MemberInfo> message = m_messageReceiver.getMemberInfo();
+      std::cout << "[conn::processMsg] msgSize: " << message.size() << '\n';
+      processMessage(message);
     }
 
     m_sock.async_receive(boost::asio::buffer(m_receiveBuffer),
@@ -176,11 +323,15 @@ public:
         boost::asio::placeholders::bytes_transferred));
   }
 
+  //================================================================================
   void handleWrite() {
     std::cout << "[conn::handleWrite]\n";
   }
 };
 
+/******************************************************************************//*
+*
+*********************************************************************************/
 class DeploykaTcpServer {
   boost::asio::io_context& m_ctx;
   boost::asio::ip::tcp::acceptor m_acceptor;
@@ -212,12 +363,23 @@ public:
   }
 };
 
+
+/******************************************************************************//*
+*
+*********************************************************************************/
 int main() {
-  std::cout << "Hello from Target Agent!" << std::endl;
+  std::ostream::sync_with_stdio(false);
+
+#ifdef _TESTS_
+  TEST::readAndPop_twoBuffers();
+  TEST::getFromOffset();
+  TEST::readAndPop_twice();
+  TEST::readManyBytes();
+#else
   boost::asio::io_context context;
   try {
     DeploykaTcpServer server(context);
-    //
+
     std::cout << "[main]                after server creation\n";
 
     context.run();
@@ -227,6 +389,7 @@ int main() {
   catch (std::exception& e) {
     std::cerr << "exception in main: " << e.what() << std::endl;
   }
+#endif
 
   return 0;
 }
