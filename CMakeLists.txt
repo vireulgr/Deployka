@@ -1,17 +1,23 @@
 cmake_minimum_required(VERSION 3.23)
 project(Deployka)
 
-set(POSSIBLE_BOOST_ROOT  "E:/prog/thirdparty/boost_1_79_0" "G:/prog/thirdparty/boost_1_79_0")
+set(POSSIBLE_BOOST_ROOT 
+    "E:/prog/thirdparty/boost_1_79_0"
+    "G:/prog/thirdparty/boost_1_79_0"
+    "I:/prog_n_gamedev/thirdparty/boost_1_79_0")
+
 foreach(ITEM ${POSSIBLE_BOOST_ROOT})
   if (EXISTS ${ITEM})
     set(BOOST_ROOT ${ITEM})
   endif()
 endforeach()
 
+
+
 message(NOTICE "Boost root is set to ${BOOST_ROOT}")
 # boost must be compiled with this flags
 # .\b2
-# toolset=vc143
+# toolset=msvc143
 # runtime-link=shared
 # link=static
 # variant=debug

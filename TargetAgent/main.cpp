@@ -1,9 +1,9 @@
 #include <iostream>
 #define BOOST_ASIO_NO_DEPRECATED
 #define BOOST_ASIO_NO_TS_EXECUTORS
-#include "boost/thread.hpp"
 #include "boost/asio.hpp"
 #include "boost/bind.hpp"
+#include "boost/enable_shared_from_this.hpp"
 #include "boost/shared_ptr.hpp"
 
 #include "..\common\DeploykaNet.h"

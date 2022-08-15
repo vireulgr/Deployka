@@ -2,12 +2,46 @@
 #define BOOST_ASIO_NO_DEPRECATED
 #define BOOST_ASIO_NO_TS_EXECUTORS
 #include "boost/asio.hpp"
-#include "boost/bind.hpp"
-#include "boost/array.hpp"
+#include <fstream>
 
 #include "..\common\DeploykaNet.h"
 
 using namespace boost::asio;
+
+void sendFile(boost::asio::ip::tcp::socket& sock, std::ifstream ifs, size_t fileSize) {
+
+  std::cout << "sending file\n";
+  for (;;) {
+    boost::system::error_code ec;
+
+    ifs.seekg(0, std::ios_base::end);
+    size_t fileSize = ifs.tellg();
+    ifs.seekg(0, std::ios_base::beg);
+
+    std::vector<unsigned char> fileBuffer(fileSize);
+
+    size_t written = sock.write_some(buffer(fileBuffer), ec);
+
+    if (written == 0) {
+      std::cout 
+        << "ERROR write_some returned 0! ec val " << ec.value()
+        << " ec what: " << ec.what()
+        << std::endl;
+      break;
+    }
+
+    std::cout << "Written " << written << std::endl;
+
+    if (ec.value() != 0) {
+      std::cout << "ERROR " << ec.what() << " (" << ec.value() << ')' << std::endl;
+      break;
+    }
+
+    if (written >= fileSize) {
+      break;
+    }
+  }
+}
 
 void sendString(boost::asio::ip::tcp::socket& sock, std::string aStr) {
   std::cout << "sending \"" << aStr << "\"\n";
@@ -36,6 +70,7 @@ void sendString(boost::asio::ip::tcp::socket& sock, std::string aStr) {
     }
   }
 }
+
 template<typename T>
 void sendIntegralOrEnum(boost::asio::ip::tcp::socket& sock, T value) {
   static_assert(std::is_arithmetic<T>::value || std::is_enum<T>::value, "Type is not suitable");
@@ -128,6 +163,20 @@ int main(int argc, char* argv[]) {
         sendString(sock, "char string of size 22");
 
         sendIntegralOrEnum<long double>(sock, 3.14159265358979);
+      }
+      if (c == 'f') {
+        std::ifstream ifs("../../../CMakeLists.txt", std::ios_base::binary);
+        if (!ifs.is_open()) {
+          std::cout << "open file failed!" << std::endl;
+          continue;
+        }
+
+        if (fileSize > 1024 * 64) {
+          // todo make chunked send
+        }
+        else {
+          sendFile(sock, ifs);
+        }
       }
     }
   }
