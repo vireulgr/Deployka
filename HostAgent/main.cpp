@@ -3,6 +3,7 @@
 #include "boost/asio.hpp"
 #include "boost/bind.hpp"
 
+
 #include <fstream>
 #include <iostream>
 #include <streambuf>
@@ -26,6 +27,7 @@ using namespace boost::asio;
 
 template <typename T>
 inline void serializeToMember(Deployka::MemberInfo& mi, T val) {
+
   static_assert(std::is_arithmetic<T>::value || std::is_enum<T>::value, "Type is not suitable");
 
   //std::cout << "stm " << val << '\n';
