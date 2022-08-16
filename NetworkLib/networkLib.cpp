@@ -120,29 +120,11 @@ namespace Deployka {
     if (vec.size() > 262) {
       size_t endClamp = vec.size() - 128;
       printHexRange(vec, 0, 128);
-      //for (size_t i = 0; i < 128; i++) {
-      //  std::cout << "0x" <<  std::setw(2) << static_cast<unsigned int>(vec[i]) << ' ';
-      //  if ((i + 1) % 16 == 0) {
-      //    std::cout << '\n';
-      //  }
-      //}
       std::cout << "\n...\n";
       printHexRange(vec, endClamp, vec.size());
-      //for (size_t i = endClamp; i < vec.size(); i++) {
-      //  std::cout << "0x" <<  std::setw(2) << static_cast<unsigned int>(vec[i]) << ' ';
-      //  if ((i + 1 )% 16 == 0) {
-      //    std::cout << '\n';
-      //  }
-      //}
     }
     else {
       printHexRange(vec, 0, vec.size());
-      //for (size_t i = 0; i < vec.size(); i++) {
-      //  std::cout << "0x" <<  std::setw(2) << static_cast<unsigned int>(vec[i]) << ' ';
-      //  if ((i + 1 )% 16 == 0) {
-      //    std::cout << '\n';
-      //  }
-      //}
     }
     std::cout << "<<<<<<<\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
     std::cout << std::dec << std::setfill(' ');
@@ -200,15 +182,15 @@ namespace Deployka {
   {}
   
   bool ReceiveStream::empty() const {
-    std::cout << "[recvStream::empty] min off: " << minOffset << "; max off: " << maxOffset << '\n';
-    if (!buffers.empty()) {
+    //std::cout << "[recvStream::empty] min off: " << minOffset << "; max off: " << maxOffset << '\n';
+    //if (!buffers.empty()) {
 
-      ReceiveBuffer const & rbb = buffers.front();
-      std::cout << "[recvStream::empty] 1st buf offs " << rbb.bufOffset << "; 1st buf size: " << rbb.bufSize << '\n';
+    //  ReceiveBuffer const & rbb = buffers.front();
+    //  std::cout << "[recvStream::empty] 1st buf offs " << rbb.bufOffset << "; 1st buf size: " << rbb.bufSize << '\n';
 
-      ReceiveBuffer const & rbe = buffers.back();
-      std::cout << "[recvStream::empty] last buf offs " << rbe.bufOffset << "; last buf size: " << rbe.bufSize << '\n';
-    }
+    //  ReceiveBuffer const & rbe = buffers.back();
+    //  std::cout << "[recvStream::empty] last buf offs " << rbe.bufOffset << "; last buf size: " << rbe.bufSize << '\n';
+    //}
     return buffers.empty();
   }
 
@@ -220,17 +202,17 @@ namespace Deployka {
   void ReceiveStream::addBuffer(unsigned char const* data, size_t dataSize, size_t offset) {
     offset = (offset != ULLONG_MAX) ? offset : (maxOffset == 0) ? 0 : maxOffset; //?? +1;
 
-    size_t toWrite = dataSize;
-    size_t curBufOffset = offset;
+    size_t curBufOffset = offset; // offset inside all stream
+    size_t dataOffset = 0; // offset insied data;
 
-    while (toWrite > 0) {
+    while (dataOffset < dataSize) {
       ReceiveBuffer drb;
 
-      size_t curBufDataSize = std::min(toWrite, RECV_BUF_SIZE);
+      size_t curBufDataSize = std::min(dataSize - dataOffset, RECV_BUF_SIZE);
       drb.bufOffset = curBufOffset;
-      drb.initialize(data + curBufOffset, curBufDataSize);
+      drb.initialize(data + dataOffset, curBufDataSize);
 
-      toWrite -= curBufDataSize;
+      dataOffset += curBufDataSize;
       curBufOffset += curBufDataSize;
 
       buffers.emplace_back(std::move(drb));
@@ -302,7 +284,7 @@ namespace Deployka {
     }
     else {
       if (bufIt != buffers.end()) {
-        std::cout << "[RecvStream::popData] c off: " << bufIt->bufOffset << "; min offset: " << minOffset << '\n';
+        //std::cout << "[RecvStream::popData] c off: " << bufIt->bufOffset << "; min offset: " << minOffset << '\n';
         minOffset = std::max(bufIt->bufOffset, minOffset);
       }
       else {

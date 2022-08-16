@@ -32,7 +32,7 @@
 void processFileChunkMessage(std::vector<Deployka::MemberInfo>& message) {
 
   if (message.empty()) {
-    std::cout << "[procFileChunkMsg] message is corrupted!\n";
+    std::cout << "[procFileChunkMsg] ERROR message is empty!\n";
     return;
   }
 
@@ -40,7 +40,7 @@ void processFileChunkMessage(std::vector<Deployka::MemberInfo>& message) {
   long long int val = 0;
   memcpy(&val, mi.buffer.data(), mi.memberSize);
   if (val != Deployka::DMT_FileChunk) {
-    std::cout << "message is corrupted!\n";
+    std::cout << "[procFileChunkMsg] ERROR message is not file chunk message!\n";
     return;
   }
 
@@ -49,11 +49,11 @@ void processFileChunkMessage(std::vector<Deployka::MemberInfo>& message) {
   std::copy(message[2].buffer.begin(), message[2].buffer.end(), std::back_inserter(receivedFilePath));
 
   std::string directoryToPutFiles = "./uploads";
-  std::cout << "[procFileChunkMsg] filename: " << receivedFilePath << '\n';
+  //std::cout << "[procFileChunkMsg] filename: " << receivedFilePath << '\n';
 
 #ifdef _MSC_VER
   if (!PathIsDirectory(directoryToPutFiles.c_str())) {
-    std::cout << "directory " << directoryToPutFiles << " not exists\n";
+    //std::cout << "directory " << directoryToPutFiles << " not exists\n";
     if (!CreateDirectory(directoryToPutFiles.c_str(), NULL)) {
       std::cout << "ERROR! Cannot create directory! GLE" << GetLastError() << '\n';
     }
@@ -73,14 +73,22 @@ void processFileChunkMessage(std::vector<Deployka::MemberInfo>& message) {
   std::string fileName = directoryToPutFiles + '/' + receivedFilePath.substr((pos == std::string::npos) ? 0 : (pos + 1));
 
   std::ofstream ofs;
-  ofs.open(fileName, std::ios_base::binary | std::ios_base::app);
+  ofs.open(fileName, std::ios::binary | std::ios::out);
 
   if (ofs.is_open()) {
     ofs.write(reinterpret_cast<char*>(message[8].buffer.data()), message[8].buffer.size());
     if (ofs.bad()) {
-      std::cout << "[proceFileChunkMsg] bad bit is set!\n";
+      std::cout << "[proceFileChunkMsg] ERROR bad bit on file is set!\n";
     }
   }
+  else {
+    if (ofs.bad()) {
+      std::cout << "[proceFileChunkMsg] ERROR bad bit on file is set!\n";
+    }
+    std::cout << "[proceFileChunkMsg] ERROR file open failed!\n";
+    std::cout << fileName << '\n';
+  }
+  ofs.flush();
 }
 
 
@@ -132,7 +140,7 @@ struct DeploykaMessageReceiver {
     drs.addBuffer(data, dataSize);
     m_msgReceived = drs.maxOffset;
 
-    std::cout << "[recvr::receive] received: " << dataSize << "; msgReceived: " << m_msgReceived << '\n';
+    //std::cout << "[recvr::receive] received: " << dataSize << "; msgReceived: " << m_msgReceived << '\n';
 
     if (m_currentMessageType == Deployka::DMT_Null
       && m_msgReceived >= sizeof(m_currentMessageType))
@@ -145,10 +153,11 @@ struct DeploykaMessageReceiver {
         throw std::logic_error("Wrong message type");
       }
 
-      std::cout << "[recvr::receive] received command: >>>>>>" << m_currentMessageType << "<<<<<<\n";
+      //std::cout << "[recvr::receive] received command: >>>>>>" << m_currentMessageType << "<<<<<<\n";
       m_memberInfo.clear();
       m_memberInfo = Deployka::buildMemberInfo((Deployka::MessageType)m_currentMessageType);
       m_nextMemberIndex = 1; // first (0) is already readed as m_currentMessageType
+      m_msgReceiveComplete = false;
     }
 
     // process rest of received data in deployka receive stream
@@ -156,15 +165,16 @@ struct DeploykaMessageReceiver {
 
     // if all command is received: cleanup receive state
     if (!m_memberInfo.empty()
-      && std::all_of(m_memberInfo.cbegin(), m_memberInfo.cend(), [](Deployka::MemberInfo const& mi) { return mi.done; })) {
+      && std::all_of(m_memberInfo.cbegin(), m_memberInfo.cend(), [] (Deployka::MemberInfo const& mi) { return mi.done; })) {
       if (drs.empty()) {
         drs.resetOffsets();
-        std::cout << "[recvr::receive] stream is empty\n";
+        //std::cout << "[recvr::receive] stream is empty\n";
         cleanupReceiveState();
       }
       m_msgReceiveComplete = true; 
+      //std::cout << "receive is complete\n";
       m_currentMessageType = Deployka::DMT_Null;
-      std::cout << "[recvr::receive] after cleanup received state\n";
+      //std::cout << "[recvr::receive] after cleanup received state\n";
     }
   }
 
@@ -263,14 +273,14 @@ public:
   //================================================================================
   static pointer create(boost::asio::io_context& ctx) {
     DeploykaTcpConnection * conn = new DeploykaTcpConnection(ctx);
-    std::cout << "[conn::create]          ptr: 0x" << conn << '\n';
+    //std::cout << "[conn::create]          ptr: 0x" << conn << '\n';
     return pointer(conn);
   }
 
   //================================================================================
   void start() {
 
-    std::cout << "[conn::start]          this: 0x" << this << '\n';
+    //std::cout << "[conn::start]          this: 0x" << this << '\n';
 
     m_sock.async_receive(boost::asio::buffer(m_receiveBuffer),
       boost::bind(&DeploykaTcpConnection::handleRead,
@@ -282,14 +292,14 @@ public:
   //================================================================================
   void processMessage(std::vector<Deployka::MemberInfo>& message) {
     if (message.empty()) {
-      std::cout << "message is corrupted!\n";
+      std::cout << "[processMessage] ERROR message is empty!\n";
       return;
     }
     Deployka::MemberInfo& mi = message.front();
     long long int val = 0;
     memcpy(&val, mi.buffer.data(), mi.memberSize);
     if (val >= Deployka::DMT_MessageTypeMax || val < Deployka::DMT_Null) {
-      std::cout << "message is corrupted!\n";
+      std::cout << "[processMessage] ERROR message type is incorrect!\n";
       return;
     }
 
@@ -302,9 +312,9 @@ public:
 
   //================================================================================
   void handleRead(boost::system::error_code const& ec, size_t received) {
-    std::cout << "[conn::handleRead]=====this: 0x" << this << "==========================\n";
+    //std::cout << "[conn::handleRead]=====this: 0x" << this << "==========================\n";
     if (ec) {
-      std::cerr << "[conn::handleRead] error: " << ec.what() << " (" << ec.value() << ")\n";
+      std::cerr << "[conn::handleRead] ERROR: " << ec.what() << " (" << ec.value() << ")\n";
       return;
     }
 
@@ -312,7 +322,7 @@ public:
 
     if (m_messageReceiver.done()) {
       std::vector<Deployka::MemberInfo> message = m_messageReceiver.getMemberInfo();
-      std::cout << "[conn::processMsg] msgSize: " << message.size() << '\n';
+      //std::cout << "[conn::processMsg] msgSize: " << message.size() << '\n';
       processMessage(message);
     }
 
@@ -344,7 +354,7 @@ public:
   }
 
   void handleAccept(DeploykaTcpConnection::pointer newConnection, boost::system::error_code const & ec) {
-    std::cout << "[serv::handleAccept] con ptr 0x" << newConnection.get() << '\n';
+    //std::cout << "[serv::handleAccept] con ptr 0x" << newConnection.get() << '\n';
     if (!ec) {
       newConnection->start();
     }
@@ -353,7 +363,7 @@ public:
 
   void startAccept() {
     DeploykaTcpConnection::pointer newConnection = DeploykaTcpConnection::create(m_ctx);
-    std::cout << "[serv::startAccept] con ptr: 0x" << newConnection.get() << '\n';
+    //std::cout << "[serv::startAccept] con ptr: 0x" << newConnection.get() << '\n';
 
     m_acceptor.async_accept(newConnection->socket(),
       boost::bind(&DeploykaTcpServer::handleAccept,
