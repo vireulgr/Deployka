@@ -13,16 +13,16 @@ foreach(ITEM ${POSSIBLE_BOOST_ROOT})
 endforeach()
 
 
-
 message(NOTICE "Boost root is set to ${BOOST_ROOT}")
+
 # boost must be compiled with this flags
 # .\b2
-# toolset=msvc143
-# runtime-link=shared
-# link=static
-# variant=debug
-# address-model=64
-# threading=multi
+#     toolset=msvc143
+#     runtime-link=shared
+#     link=static
+#     variant=debug
+#     address-model=64
+#     threading=multi
 
 find_package(Boost REQUIRED)
 
