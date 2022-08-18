@@ -1,2 +1,9 @@
 #TODO
-add_library(NetworkLib networkLib.cpp networkLib.h)
+add_library(NetworkLib 
+  networkLib.cpp
+  networkLib.h
+  MessageReceiver.cpp
+  MessageReceiver.h
+  ReceiveStream.cpp
+  ReceiveStream.h
+)

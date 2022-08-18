@@ -1,12 +1,18 @@
 #include "tests.h"
 #include "networkLib.h"
+#include "ReceiveStream.h"
+#include "MessageReceiver.h"
+
 #include <memory>
 #include <iostream>
 #include <algorithm>
 
 
 namespace TEST {
-  char const g_sampleMessage[] = "\x01\x00\x00\x00\x00\x00\x00\x00" // file message type
+  char const g_sampleMessage[] = 
+                                "\x01\x00\x00\x00\x00\x00\x00\x00" // file message type
+                                "\x11\x00\x00\x00\x00\x00\x00\x00" // file name size
+                                "\x73\x6f\x6d\x65\x6f\x74\x68\x65\x72\x66\x69\x6c\x65\x2e\x74\x78\x74" // file name
                                 "\x5c\x00\x00\x00\x00\x00\x00\x00" // file data size
                                 "\x53\x6f\x6d\x65\x20\x6f\x74\x68\x65\x72\x20\x66\x69\x6c\x65\x20" // file data
                                 "\x63\x6f\x6e\x74\x65\x6e\x74\x2e\x0d\x0a\x54\x68\x65\x20\x71\x75"
@@ -14,8 +20,6 @@ namespace TEST {
                                 "\x6d\x70\x73\x20\x6f\x76\x65\x72\x20\x61\x20\x6c\x61\x7a\x79\x20"
                                 "\x64\x6f\x67\x2e\x0d\x0a\x65\x6e\x64\x20\x65\x6e\x64\x20\x65\x6e"
                                 "\x64\x20\x65\x6e\x64\x20\x65\x6e\x64\x2e\x0d\x0a"
-                                "\x11\x00\x00\x00\x00\x00\x00\x00" // file name size
-                                "\x73\x6f\x6d\x65\x6f\x74\x68\x65\x72\x66\x69\x6c\x65\x2e\x74\x78\x74" // file name
                                 ;
 
   char const g_zeros[] = "0000000000000000000000000000000000000000000000000";
@@ -72,7 +76,7 @@ void printBuffersBoundries(Deployka::ReceiveStream & drs) {
   for (auto it = drs.buffers.begin(); it != drs.buffers.end(); ++it) {
     curBufSize = it->bufSize;
     std::cout << "cur buf size: " << curBufSize << '\n';
-    Deployka::printHexRange(it->bufData.data(), 0, 7);
+    Deployka::printHexRange(it->bufData.data(), 0, 6);
     std::cout << "... ";
     Deployka::printHexRange(it->bufData.data(), curBufSize-7, curBufSize);
     std::cout << '\n';
@@ -176,4 +180,31 @@ void readAndPop_twice() {
 
   Deployka::printHex(myBuffer.get(), myBufSize);
 }
+
+// ================================================================================
+void multipleMessagesInStream() {
+  std::cout << __FUNCTION__ << '\n';
+
+  size_t constexpr bufSize = 9000;
+  std::unique_ptr<unsigned char[]> aBuffer = std::make_unique<unsigned char[]>(bufSize);
+
+  size_t constexpr msgSize = sizeof(g_sampleMessage)-1;
+
+  size_t bufOffset = 0;
+  while (bufOffset < bufSize) {
+    size_t const toCopy = std::min(msgSize, bufSize - bufOffset);
+
+    memcpy_s(aBuffer.get() + bufOffset, bufSize - bufOffset, g_sampleMessage, toCopy);
+    bufOffset += toCopy;
+  }
+
+  Deployka::MessageReceiver msgReceiver;
+
+  msgReceiver.receive(aBuffer.get(), bufSize);
+  if (msgReceiver.haveReceivedMessages()) {
+    msgReceiver.getReceivedMessages();
+  }
 }
+
+
+} // namespace TEST

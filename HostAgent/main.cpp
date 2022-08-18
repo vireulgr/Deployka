@@ -3,7 +3,6 @@
 #include "boost/asio.hpp"
 #include "boost/bind.hpp"
 
-
 #include <fstream>
 #include <iostream>
 #include <streambuf>
@@ -212,7 +211,7 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
   for (int i = 0; ; i++) {
     // read file chunk
     unsigned long int bytesRead = 0;
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && defined(USE_WIN_NATIVE_FILE_IO)
     if (!ReadFile(hFile, buffer.get(), static_cast<unsigned long>(chunkSize), &bytesRead, nullptr)) {
       CloseHandle(hFile);
       std::cout << "Error! GLE: " << GetLastError() << "; chunk size: " << chunkSize << "; bytes read: " << bytesRead << std::endl;
@@ -259,7 +258,7 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
     Deployka::clearMemberInfo(memInfoVec);
   }
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) && defined(USE_WIN_NATIVE_FILE_IO)
   CloseHandle(hFile);
 #else
 #endif

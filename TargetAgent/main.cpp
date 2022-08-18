@@ -13,6 +13,7 @@
 #include <climits>
 
 #include "networkLib.h"
+#include "MessageReceiver.h"
 
 #ifdef _MSC_VER
 //#define WIN32_LEAN_AND_MEAN
@@ -22,7 +23,7 @@
 #include <filesystem>
 #endif
 
-//#define _TESTS_
+#define _TESTS_
 
 #ifdef _TESTS_
 #include "tests.h"
@@ -95,166 +96,11 @@ void processFileChunkMessage(std::vector<Deployka::MemberInfo>& message) {
 /******************************************************************************//*
 *
 *********************************************************************************/
-struct DeploykaMessageReceiver {
-  std::vector<Deployka::MemberInfo> m_memberInfo;
-
-  Deployka::ReceiveStream drs;
-
-  size_t m_msgReceived;
-  bool m_msgReceiveComplete;
-  size_t m_dynamicOffset; // sum of length of all dynamic data members that has been processed so far
-  int m_nextMemberIndex;
-
-  Deployka::MessageType m_currentMessageType;
-
-  DeploykaMessageReceiver() 
-    : m_msgReceived(0)
-    , m_msgReceiveComplete(false)
-    , m_dynamicOffset(0)
-    , m_nextMemberIndex(0)
-    , m_currentMessageType(Deployka::DMT_Null)
-  { }
-
-  //================================================================================
-  bool done() const {
-    return m_msgReceiveComplete;
-  }
-
-  //================================================================================
-
-  std::vector<Deployka::MemberInfo> getMemberInfo() {
-    return std::move(m_memberInfo);
-  }
-
-  //================================================================================
-  void cleanupReceiveState() {
-    m_msgReceived = 0;
-    m_dynamicOffset = 0;
-    m_nextMemberIndex = 0;
-    m_currentMessageType = Deployka::DMT_Null;
-  }
-
-  //================================================================================
-  void receive(unsigned char const* data, size_t dataSize) {
-
-    drs.addBuffer(data, dataSize);
-    m_msgReceived = drs.maxOffset;
-
-    //std::cout << "[recvr::receive] received: " << dataSize << "; msgReceived: " << m_msgReceived << '\n';
-
-    if (m_currentMessageType == Deployka::DMT_Null
-      && m_msgReceived >= sizeof(m_currentMessageType))
-    {
-      // here we copy always from zero offset
-      drs.readAndPop(reinterpret_cast<unsigned char*>(& m_currentMessageType), sizeof(m_currentMessageType));
-
-      if (m_currentMessageType >= Deployka::MessageType::DMT_MessageTypeMax) {
-        std::cout << "[recvr::receive] ERROR: message type received is " << m_currentMessageType << '\n';
-        throw std::logic_error("Wrong message type");
-      }
-
-      //std::cout << "[recvr::receive] received command: >>>>>>" << m_currentMessageType << "<<<<<<\n";
-      m_memberInfo.clear();
-      m_memberInfo = Deployka::buildMemberInfo((Deployka::MessageType)m_currentMessageType);
-      m_nextMemberIndex = 1; // first (0) is already readed as m_currentMessageType
-      m_msgReceiveComplete = false;
-    }
-
-    // process rest of received data in deployka receive stream
-    processReadedData();
-
-    // if all command is received: cleanup receive state
-    if (!m_memberInfo.empty()
-      && std::all_of(m_memberInfo.cbegin(), m_memberInfo.cend(), [] (Deployka::MemberInfo const& mi) { return mi.done; })) {
-      if (drs.empty()) {
-        drs.resetOffsets();
-        //std::cout << "[recvr::receive] stream is empty\n";
-        cleanupReceiveState();
-      }
-      m_msgReceiveComplete = true; 
-      //std::cout << "receive is complete\n";
-      m_currentMessageType = Deployka::DMT_Null;
-      //std::cout << "[recvr::receive] after cleanup received state\n";
-    }
-  }
-
-  //================================================================================
-  void processReadedData() {
-    //std::cout << "[recvr::procRdData] in               done?    mbrOff          mbrSize           dynOffs\n";
-
-    for (int i = m_nextMemberIndex; i < m_memberInfo.size(); ++i) {
-      Deployka::MemberInfo& mi = m_memberInfo[i];
-      //std::cout << "[recvr::procRdData] "
-      //   << std::setw(20) << std::boolalpha << mi.done << std::noboolalpha
-      //   << std::setw(10) << mi.memberOffset
-      //   << std::setw(17) << mi.memberSize
-      //   << std::setw(17) << m_dynamicOffset
-      //   << '\n';
-
-      if (m_msgReceived < mi.memberOffset + mi.memberSize + m_dynamicOffset
-        && (i > m_nextMemberIndex || i == 1))
-      {
-        m_nextMemberIndex = i;
-        //std::cout << "[recvr::procRdData] Next member (" << i << ") is not received yet; max offset: "<< drs.maxOffset << "\n";
-        break;
-      }
-
-      if (m_msgReceived >= mi.memberOffset + mi.memberSize + m_dynamicOffset
-        && !mi.done)
-      { 
-        mi.buffer.reserve(mi.memberSize);
-        size_t readed = drs.readAndPop(mi.buffer, mi.memberSize);
-
-        if (readed != mi.memberSize) {
-          std::cout << "ERROR readed less data than required! readed: " << readed << "; member size: " << mi.memberSize << "\n";
-        }
-
-        mi.done = true;
-
-        switch (mi.memberType) {
-        //case Deployka::MT_longLong: {
-        //  long long int val = 0;
-        //  memcpy(&val, mi.buffer.data(), mi.memberSize);
-        //  std::cout << "[recvr::procRdData] long long val: " << val << '\n';
-        //  break;
-        //}
-        //case Deployka::MT_longDouble: {
-        //  long double val = 0;
-        //  memcpy(&val, mi.buffer.data(), mi.memberSize);
-        //  std::cout << "[recvr::procRdData] long double val: " << val << '\n';
-        //  break;
-        //}
-        case Deployka::MT_dynamic: {
-          //std::cout << "[recvr::procRdData] dynamic ";
-          //Deployka::printString(mi.buffer);
-          m_dynamicOffset += mi.memberSize;
-          break;
-        }
-        case Deployka::MT_dynamicSize: {
-          if ((i < m_memberInfo.size()-1)
-            && (m_memberInfo[i + 1].memberType == Deployka::MT_dynamic))
-          {
-            size_t & dynamicMemberSize = m_memberInfo[i + 1].memberSize;
-            memcpy(&dynamicMemberSize, mi.buffer.data(), mi.memberSize);
-            //std::cout << "[recvr::procRdData] dynamic SIZE: " << m_memberInfo[i+1].memberSize << "\n";
-          }
-          break;
-        }
-        }
-      }
-    }
-    //std::cout << "[recvr::procRdData] out\n";
-  }
-};
-
-/******************************************************************************//*
-*
-*********************************************************************************/
 class DeploykaTcpConnection: public boost::enable_shared_from_this<DeploykaTcpConnection> {
 
   std::array<unsigned char, Deployka::RECV_BUF_SIZE> m_receiveBuffer;
 
-  DeploykaMessageReceiver m_messageReceiver;
+  Deployka::MessageReceiver m_messageReceiver;
 
   boost::asio::ip::tcp::socket m_sock;
 

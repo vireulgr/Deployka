@@ -3,8 +3,6 @@
 #include <map>
 #include <vector>
 #include <string>
-#include <list>
-#include <array>
 // CLIENT REQUEST
 // size_t  | size_t   | array<char, dataSize> |
 // command | dataSize | serialized data       |
@@ -60,7 +58,7 @@ namespace Deployka {
   std::map<MessageType, std::vector<MemberType>> const g_commands = { 
     {
       DMT_File,
-      // cmd code   file data size  file data   file Name Size  file name
+      // cmd code   file name size  file name   file data Size  file data
       {MT_longLong, MT_dynamicSize, MT_dynamic, MT_dynamicSize, MT_dynamic}
     },
     {
@@ -87,42 +85,5 @@ namespace Deployka {
   // TODO function receive member info vector
   // TODO function send member info vector
 
-  /******************************************************************************//*
-  *
-  *********************************************************************************/
-  struct ReceiveBuffer {
-  protected:
-    size_t dataOffset;
-  public:
-    size_t bufOffset; // offset of buffer in message
-    size_t bufSize; // buffer size
-    std::array<unsigned char, RECV_BUF_SIZE> bufData;
-
-    ReceiveBuffer();
-
-    size_t initialize(unsigned char const* data, size_t dataSize);
-    size_t readFromOffsetToEnd(unsigned char* data, size_t offset) const;
-    size_t pop(size_t count);
-  };
-
-  /******************************************************************************//*
-  *
-  *********************************************************************************/
-  struct ReceiveStream {
-    size_t minOffset;
-    size_t maxOffset;
-    std::list<ReceiveBuffer> buffers;
-
-    ReceiveStream();
-
-    void addBuffer(unsigned char const* data, size_t dataSize, size_t offset = ULLONG_MAX);
-    size_t getFromOffset(unsigned char* destBuf, size_t count, size_t offset) const;
-    size_t popData(size_t count);
-    size_t readAndPop(unsigned char* destBuf, size_t count); // offset is always minOffset
-    size_t readAndPop(std::vector<unsigned char>& destBuf, size_t count); // offset is always minOffset
-
-    void resetOffsets();
-    bool empty() const;
-  };
 }
 #endif
