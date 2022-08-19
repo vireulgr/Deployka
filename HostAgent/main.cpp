@@ -141,7 +141,7 @@ void sendFileCommand(ip::tcp::socket& sock, std::string filename) {
 
   sendMessage(sock, memInfo);
 }
- 
+
 
 // file chunk:
 // |  long long         | dynamic size     | dynamic   |   dynamic size            | dynamic (ISO date string) | long long | long long    | dynamic size | dynamic         |
@@ -153,7 +153,7 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
 
   std::string fileLastModTimeIsoStr;
   long long unsigned int fileSize = 0ull;
-  long long unsigned int chunkSize = (1ull << 13) - 256; // 
+  long long unsigned int chunkSize = (1ull << 13) - 256;
 
 #if defined(_MSC_VER) && defined(USE_WIN_NATIVE_FILE_IO)
   size_t converted;

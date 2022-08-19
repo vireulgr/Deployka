@@ -20,7 +20,7 @@
 #include <Shlwapi.h>
 #pragma comment(lib, "Shlwapi.lib")
 #else
-#include <filesystem>
+#include "boost/filesystem.hpp"
 #endif
 
 #define _TESTS_
@@ -136,12 +136,17 @@ public:
   }
 
   //================================================================================
-  void processMessage(std::vector<Deployka::MemberInfo>& message) {
-    if (message.empty()) {
-      std::cout << "[processMessage] ERROR message is empty!\n";
+  void processMessages(std::vector<std::vector<Deployka::MemberInfo>>& messages) {
+    if (messages.empty()) {
+      std::cout << "[processMessage] ERROR messages are empty!\n";
       return;
     }
-    Deployka::MemberInfo& mi = message.front();
+    for (int i = 0; i < messages.size(); i++) {
+    if (messages[i].empty()) {
+      std::cout << "[processMessage] ERROR messages are empty!\n";
+      return;
+    }
+    Deployka::MemberInfo& mi = messages[i].front();
     long long int val = 0;
     memcpy(&val, mi.buffer.data(), mi.memberSize);
     if (val >= Deployka::DMT_MessageTypeMax || val < Deployka::DMT_Null) {
@@ -151,8 +156,9 @@ public:
 
     switch (val) {
     case Deployka::DMT_FileChunk:
-      ::processFileChunkMessage(message);
+      ::processFileChunkMessage(messages[i]);
       break;
+    }
     }
   }
 
@@ -167,9 +173,9 @@ public:
     m_messageReceiver.receive(m_receiveBuffer.data(), received);
 
     if (m_messageReceiver.done()) {
-      std::vector<Deployka::MemberInfo> message = m_messageReceiver.getMemberInfo();
+      std::vector<std::vector<Deployka::MemberInfo>> messages = m_messageReceiver.getReceivedMessages();
       //std::cout << "[conn::processMsg] msgSize: " << message.size() << '\n';
-      processMessage(message);
+      processMessages(messages);
     }
 
     m_sock.async_receive(boost::asio::buffer(m_receiveBuffer),
@@ -231,6 +237,8 @@ int main() {
   TEST::getFromOffset();
   TEST::readAndPop_twice();
   TEST::readManyBytes();
+  TEST::multipleMessagesInStream();
+
 #else
   boost::asio::io_context context;
   try {

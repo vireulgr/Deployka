@@ -9,7 +9,7 @@
 
 
 namespace TEST {
-  char const g_sampleMessage[] = 
+  char const g_sampleMessage[] =
                                 "\x01\x00\x00\x00\x00\x00\x00\x00" // file message type
                                 "\x11\x00\x00\x00\x00\x00\x00\x00" // file name size
                                 "\x73\x6f\x6d\x65\x6f\x74\x68\x65\x72\x66\x69\x6c\x65\x2e\x74\x78\x74" // file name
@@ -76,9 +76,12 @@ void printBuffersBoundries(Deployka::ReceiveStream & drs) {
   for (auto it = drs.buffers.begin(); it != drs.buffers.end(); ++it) {
     curBufSize = it->bufSize;
     std::cout << "cur buf size: " << curBufSize << '\n';
-    Deployka::printHexRange(it->bufData.data(), 0, 6);
+    std::unique_ptr<unsigned char[]> aBuf = std::make_unique<unsigned char[]>(63);
+    it->readCountFromOffset(aBuf.get(), 0, 6);
+    Deployka::printHexRange(aBuf.get(), 0, 6);
     std::cout << "... ";
-    Deployka::printHexRange(it->bufData.data(), curBufSize-7, curBufSize);
+    it->readCountFromOffset(aBuf.get(), curBufSize-7, 7);
+    Deployka::printHexRange(aBuf.get(), 0, 7);
     std::cout << '\n';
   }
 }
@@ -202,9 +205,8 @@ void multipleMessagesInStream() {
 
   msgReceiver.receive(aBuffer.get(), bufSize);
   if (msgReceiver.haveReceivedMessages()) {
-    msgReceiver.getReceivedMessages();
+    std::vector<std::vector<Deployka::MemberInfo>> messages = msgReceiver.getReceivedMessages();
   }
 }
-
 
 } // namespace TEST

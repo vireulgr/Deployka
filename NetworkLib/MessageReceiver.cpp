@@ -5,8 +5,8 @@
 #include <algorithm>
 
 namespace Deployka {
-MessageReceiver::MessageReceiver() 
-  : m_msgReceived(0)
+MessageReceiver::MessageReceiver()
+  : m_notEnoughBuffer(false)
   , m_msgReceiveComplete(false)
   , m_dynamicOffset(0)
   , m_nextMemberIndex(0)
@@ -20,39 +20,37 @@ bool MessageReceiver::done() const {
 
 //================================================================================
 bool MessageReceiver::haveReceivedMessages() const {
-  // TODO
-  return false;
+  return !m_messages.empty();
 }
 
 //================================================================================
 
-// TODO
-std::vector<MemberInfo> MessageReceiver::getReceivedMessages() {
-  return std::move(m_memberInfo);
+std::vector<std::vector<MemberInfo>> MessageReceiver::getReceivedMessages() {
+  return std::move(m_messages);
 }
 
 //================================================================================
 void MessageReceiver::cleanupReceiveState() {
-  m_msgReceived = 0;
   m_dynamicOffset = 0;
   m_nextMemberIndex = 0;
   m_currentMessageType = DMT_Null;
+  m_notEnoughBuffer = false;
 }
 
 //================================================================================
 void MessageReceiver::receive(unsigned char const* data, size_t dataSize) {
 
   drs.addBuffer(data, dataSize);
-  m_msgReceived = drs.maxOffset;
+  m_notEnoughBuffer = false;
 
   //std::cout << "[recvr::receive] received: " << dataSize << "; msgReceived: " << m_msgReceived << '\n';
-  // while (m_notEnoughBuffer || drs.empty()) {
-  // }
+  while (!m_notEnoughBuffer && !drs.empty()) {
+
+  size_t msgReceived = drs.getSize();
 
   if (m_currentMessageType == DMT_Null
-    && m_msgReceived >= sizeof(m_currentMessageType))
+    && msgReceived >= sizeof(m_currentMessageType))
   {
-    // here we copy always from zero offset
     drs.readAndPop(reinterpret_cast<unsigned char*>(& m_currentMessageType), sizeof(m_currentMessageType));
 
     if (m_currentMessageType >= MessageType::DMT_MessageTypeMax) {
@@ -78,10 +76,13 @@ void MessageReceiver::receive(unsigned char const* data, size_t dataSize) {
       //std::cout << "[recvr::receive] stream is empty\n";
       cleanupReceiveState();
     }
-    m_msgReceiveComplete = true; 
+    m_messages.emplace_back(std::move(m_memberInfo));
+    m_dynamicOffset = 0;
+    m_msgReceiveComplete = true;
     //std::cout << "receive is complete\n";
     m_currentMessageType = DMT_Null;
     //std::cout << "[recvr::receive] after cleanup received state\n";
+  }
   }
 }
 
@@ -98,17 +99,20 @@ void MessageReceiver::parseData() {
     //   << std::setw(17) << m_dynamicOffset
     //   << '\n';
 
-    if (m_msgReceived < mi.memberOffset + mi.memberSize + m_dynamicOffset
+    size_t msgReceived = drs.getSize();
+
+    if (msgReceived < mi.memberOffset + mi.memberSize + m_dynamicOffset
       && (i > m_nextMemberIndex || i == 1))
     {
       m_nextMemberIndex = i;
+      m_notEnoughBuffer = true;
       //std::cout << "[recvr::procRdData] Next member (" << i << ") is not received yet; max offset: "<< drs.maxOffset << "\n";
       break;
     }
 
-    if (m_msgReceived >= mi.memberOffset + mi.memberSize + m_dynamicOffset
+    if (msgReceived >= mi.memberOffset + mi.memberSize + m_dynamicOffset
       && !mi.done)
-    { 
+    {
       mi.buffer.reserve(mi.memberSize);
       size_t readed = drs.readAndPop(mi.buffer, mi.memberSize);
 

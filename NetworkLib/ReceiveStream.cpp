@@ -29,6 +29,17 @@ namespace Deployka {
     return resPtr - data;
   }
 
+  size_t ReceiveBuffer::readCountFromOffset(unsigned char* data, size_t offset, size_t count) const {
+    if (offset > dataOffset + bufSize) {
+      return 0;
+    }
+
+    size_t toCopy = std::min(bufSize - offset, count);
+    auto it = std::copy(bufData.begin() + dataOffset, bufData.begin() + dataOffset + toCopy, data);
+
+    return std::distance(data, it);
+  }
+
   size_t ReceiveBuffer::pop(size_t count) {
     //std::cout << "[recvBuffer]::pop count: " << count << "; bufSize: " << bufSize << "; off: " << bufOffset << '\n';
     if (count > bufSize) {
@@ -53,7 +64,7 @@ namespace Deployka {
     : minOffset(0)
     , maxOffset(0)
   {}
-  
+
   bool ReceiveStream::empty() const {
     //std::cout << "[recvStream::empty] min off: " << minOffset << "; max off: " << maxOffset << '\n';
     //if (!buffers.empty()) {
@@ -70,6 +81,10 @@ namespace Deployka {
   void ReceiveStream::resetOffsets() {
     minOffset = 0;
     maxOffset = 0;
+  }
+
+  size_t ReceiveStream::getSize() const {
+    return maxOffset - minOffset;
   }
 
   void ReceiveStream::addBuffer(unsigned char const* data, size_t dataSize, size_t offset) {
@@ -105,33 +120,25 @@ namespace Deployka {
 
     size_t destPutOffset = 0;
 
-    for (auto bufIt = buffers.cbegin(); bufIt != buffers.cend(); ++bufIt) {
+    for (auto bufIt = buffers.cbegin(); bufIt != buffers.cend() && count > 0; ++bufIt) {
       //std::cout << "[RecvStream::getFromOff] r offs " << offset << "; r count: " << count << '\n';
 
       size_t const & off = bufIt->bufOffset;
       size_t const & sz = bufIt->bufSize;
 
       //std::cout << "[RecvStream::getFromOff] c offs " << off << "; c count: " << sz << '\n';
-      if (off <= offset && offset < off + sz) {
-        std::array<unsigned char, RECV_BUF_SIZE> const & aBuf = bufIt->bufData;
-        size_t localFrom = (offset - off);
-        size_t localTo = std::min((offset + count), (off + sz)) - off;
-
-        //std::cout << "[RecvStream::getFromOff] l from: " << localFrom << "; l to: " << localTo << '\n';
-
-        auto startIt = aBuf.begin() + localFrom;
-        auto endIt = aBuf.begin() + localTo;
-
-        std::copy(startIt, endIt, destBuf + destPutOffset);
-
-        offset = offset + (std::min((offset + count), (off + sz)) - off); //?? +1;
-        count = count - (localTo - localFrom);
-        destPutOffset += localTo - localFrom;
+      if (off > offset || offset >= off + sz) {
+        continue;
       }
 
-      if (count == 0) {
-        break;
-      }
+      size_t localFrom = (offset - off);
+      size_t localTo = std::min((offset + count), (off + sz)) - off;
+
+      bufIt->readCountFromOffset(destBuf + destPutOffset, localFrom, localTo - localFrom);
+
+      offset = offset + (std::min((offset + count), (off + sz)) - off); //?? +1;
+      count = count - (localTo - localFrom);
+      destPutOffset += localTo - localFrom;
     }
     return destPutOffset;
   }
@@ -171,7 +178,7 @@ namespace Deployka {
   size_t ReceiveStream::readAndPop(std::vector<unsigned char> & destBuf, size_t count) { // offset is always minOffset
     //std::cout << "[RecvStream::readAndPop] vector version\n";
     std::unique_ptr<unsigned char[]> tmpBuf = std::make_unique<unsigned char[]>(count);
-    
+
     size_t result = readAndPop(tmpBuf.get(), count);
 
     destBuf.assign(tmpBuf.get(), tmpBuf.get() + count);

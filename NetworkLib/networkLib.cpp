@@ -40,7 +40,7 @@ namespace Deployka {
 
   void clearMemberInfo(std::vector<Deployka::MemberInfo>& miVec) {
     std::transform(
-      miVec.begin() + 1, 
+      miVec.begin() + 1,
       miVec.end(),
       miVec.begin() + 1,
       [] (Deployka::MemberInfo& item) {

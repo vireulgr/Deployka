@@ -9,12 +9,13 @@
 *********************************************************************************/
 namespace Deployka {
 struct MessageReceiver {
+  std::vector<std::vector<MemberInfo>> m_messages;
   std::vector<MemberInfo> m_memberInfo;
 
   ReceiveStream drs;
 
-  size_t m_msgReceived;
   bool m_msgReceiveComplete;
+  bool m_notEnoughBuffer;
   size_t m_dynamicOffset; // sum of length of all dynamic data members that has been processed so far
   int m_nextMemberIndex;
 
@@ -30,7 +31,7 @@ struct MessageReceiver {
   bool done() const;
 
   //================================================================================
-  std::vector<MemberInfo> getReceivedMessages(); // TODO
+  std::vector<std::vector<MemberInfo>> getReceivedMessages();
 
   //================================================================================
   void cleanupReceiveState();
