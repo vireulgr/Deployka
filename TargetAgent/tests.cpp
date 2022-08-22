@@ -201,11 +201,29 @@ void multipleMessagesInStream() {
     bufOffset += toCopy;
   }
 
+
   Deployka::MessageReceiver msgReceiver;
 
   msgReceiver.receive(aBuffer.get(), bufSize);
   if (msgReceiver.haveReceivedMessages()) {
     std::vector<std::vector<Deployka::MemberInfo>> messages = msgReceiver.getReceivedMessages();
+
+    int i = 0;
+    for (auto msgIt = messages.begin(); msgIt != messages.end(); ++msgIt) {
+      size_t offset = 0;
+      int j = 0;
+      for (auto bufIt = msgIt->begin(); bufIt != msgIt->end(); ++bufIt) {
+        int res = memcmp(g_sampleMessage + offset, bufIt->buffer.data(), bufIt->memberSize);
+
+        if (res != 0) {
+          std::cout << "FAILED: buffer mismatch in message #" << i << " member #" << j << "!\n";
+        }
+
+        offset += bufIt->memberSize;
+        j += 1;
+      }
+      i += 1;
+    }
   }
 }
 
