@@ -89,7 +89,7 @@ boost::system::error_code sendMessage(ip::tcp::socket & sock, std::vector<Deploy
     totalSent += aConstBuffer.size();
     //std::cout << std::setw(9) << aConstBuffer.size() << std::setw(9) << totalSent << '\n';
   }
-  //std::cout << "Send message total sent: " << std::setw(9) << totalSent << '\n';
+  std::cout << "[sendMessage] member 8 buf size: " << std::setw(9) << mi[8].buffer.size() << "; total sent : " << std::setw(9) << totalSent << '\n';
   return boost::system::error_code();
 }
 

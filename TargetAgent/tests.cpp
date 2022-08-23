@@ -208,12 +208,11 @@ void multiplePartsMessage() {
   size_t constexpr partSize = 213;
   size_t sendOffset = 0;
   while (sendOffset < bufSize) {
-  //for (int partNumber = 0; partNumber < bufSize / partSize; partNumber += 1) {
 
     size_t const toReceive = std::min(partSize, bufSize - sendOffset);
 
-    msgReceiver.receive(aBuffer.get() + sendOffset, partSize);
-    sendOffset += partSize;
+    msgReceiver.receive(aBuffer.get() + sendOffset, toReceive);
+    sendOffset += toReceive;
     if (msgReceiver.haveReceivedMessages()) {
       std::vector<std::vector<Deployka::MemberInfo>> messages = msgReceiver.getReceivedMessages();
 
@@ -236,7 +235,6 @@ void multiplePartsMessage() {
     }
   }
 }
-
 
 // ================================================================================
 void multipleMessagesInStream() {

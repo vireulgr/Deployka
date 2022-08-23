@@ -16,7 +16,6 @@ struct MessageReceiver {
 
   bool m_msgReceiveComplete;
   bool m_notEnoughBuffer;
-  size_t m_dynamicOffset; // sum of length of all dynamic data members that has been processed so far
   int m_nextMemberIndex;
 
   MessageType m_currentMessageType;

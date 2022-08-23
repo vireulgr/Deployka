@@ -73,10 +73,12 @@ void processFileChunkMessage(std::vector<Deployka::MemberInfo>& message) {
   size_t pos = receivedFilePath.find_last_of("/\\");
   std::string fileName = directoryToPutFiles + '/' + receivedFilePath.substr((pos == std::string::npos) ? 0 : (pos + 1));
 
+  // TODO destroy contents of file if file chunk has #0
   std::ofstream ofs;
-  ofs.open(fileName, std::ios::binary | std::ios::out);
+  ofs.open(fileName, std::ios::binary | std::ios::out | std::ios::app);
 
   if (ofs.is_open()) {
+    std::cout << "[proceFileChunkMsg] write " << message[8].buffer.size() << " bytes to file " << fileName << "\n";
     ofs.write(reinterpret_cast<char*>(message[8].buffer.data()), message[8].buffer.size());
     if (ofs.bad()) {
       std::cout << "[proceFileChunkMsg] ERROR bad bit on file is set!\n";
@@ -238,6 +240,7 @@ int main() {
   TEST::readAndPop_twice();
   TEST::readManyBytes();
   TEST::multipleMessagesInStream();
+  TEST::multiplePartsMessage();
 
 #else
   boost::asio::io_context context;
