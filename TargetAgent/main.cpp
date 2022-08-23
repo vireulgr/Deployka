@@ -23,7 +23,7 @@
 #include "boost/filesystem.hpp"
 #endif
 
-#define _TESTS_
+//#define _TESTS_
 
 #ifdef _TESTS_
 #include "tests.h"
@@ -119,7 +119,7 @@ public:
   //================================================================================
   static pointer create(boost::asio::io_context& ctx) {
     DeploykaTcpConnection * conn = new DeploykaTcpConnection(ctx);
-    //std::cout << "[conn::create]          ptr: 0x" << conn << '\n';
+    std::cout << "[conn::create]          ptr: 0x" << conn << '\n';
     return pointer(conn);
   }
 

@@ -169,27 +169,27 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
 
   HANDLE hFile = CreateFileW(wcBuf.get(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, /*FILE_FLAG_RANDOM_ACCESS FILE_FLAG_SEQUENTIAL_SCAN*/ 0, NULL);
   if (hFile == INVALID_HANDLE_VALUE) {
-    std::cout << "Error! GLE: " << GetLastError() << std::endl;
+    std::cout << "Error! GLE: " << GetLastError() << "; filename: "<< filename << std::endl;
     throw std::logic_error("Cannot open file");
   }
 
   LARGE_INTEGER liFileSize{};
   if (!GetFileSizeEx(hFile, &liFileSize)) {
-    std::cout << "Error! GLE: " << GetLastError() << std::endl;
+    std::cout << "Error! GLE: " << GetLastError() << "; filename" << filename << std::endl;
     CloseHandle(hFile);
     throw std::logic_error("Cannot get file size");
   }
 
   FILETIME ftAccess{}, ftCreate{}, ftWrite{};
   if (!GetFileTime(hFile, &ftCreate, &ftAccess, &ftWrite)) {
-    std::cout << "Error! GLE: " << GetLastError() << std::endl;
+    std::cout << "Error! GLE: " << GetLastError() << "; filename" << filename << std::endl;
     CloseHandle(hFile);
     throw std::logic_error("Cannot get file time");
   }
 
   SYSTEMTIME stTemp{};
   if (!FileTimeToSystemTime(&ftWrite, &stTemp)) {
-    std::cout << "Error! GLE: " << GetLastError() << std::endl;
+    std::cout << "Error! GLE: " << GetLastError() << "; filename" << filename << std::endl;
     CloseHandle(hFile);
     throw std::logic_error("Cannot convert file time to system time");
   }
@@ -328,7 +328,8 @@ int main(int argc, char* argv[]) {
         sendFileCommand(sock, fileName);
       }
       if (c == 'h') {
-        char const fileName[] = "E:\\prog\\cpp\\Deployka\\build\\TargetAgent\\Debug\\TargetAgent.pdb";
+        //char const fileName[] = "E:\\prog\\cpp\\Deployka\\build\\TargetAgent\\Debug\\TargetAgent.pdb";
+        char const fileName[] = "I:\\prog_n_gamedev\\VCS\\Deployka\\build\\TargetAgent\\Debug\\TargetAgent.pdb";
         //char const fileName[] = "E:\\prog\\cpp\\Deployka\\somefile.txt";
         sendFileChunkedCommand(sock, fileName);
       }

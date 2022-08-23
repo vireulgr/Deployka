@@ -185,20 +185,76 @@ void readAndPop_twice() {
 }
 
 // ================================================================================
+void multiplePartsMessage() {
+  // TODO
+  std::cout << __FUNCTION__ << '\n';
+  size_t constexpr bufSize = 17700;
+  std::unique_ptr<unsigned char[]> aBuffer = std::make_unique<unsigned char[]>(bufSize);
+
+  {
+    size_t constexpr msgSize = sizeof(g_sampleMessage) - 1;
+
+    size_t bufOffset = 0;
+    while (bufOffset < bufSize) {
+      size_t const toCopy = std::min(msgSize, bufSize - bufOffset);
+
+      memcpy_s(aBuffer.get() + bufOffset, bufSize - bufOffset, g_sampleMessage, toCopy);
+      bufOffset += toCopy;
+    }
+  }
+
+  Deployka::MessageReceiver msgReceiver;
+
+  size_t constexpr partSize = 213;
+  size_t sendOffset = 0;
+  while (sendOffset < bufSize) {
+  //for (int partNumber = 0; partNumber < bufSize / partSize; partNumber += 1) {
+
+    size_t const toReceive = std::min(partSize, bufSize - sendOffset);
+
+    msgReceiver.receive(aBuffer.get() + sendOffset, partSize);
+    sendOffset += partSize;
+    if (msgReceiver.haveReceivedMessages()) {
+      std::vector<std::vector<Deployka::MemberInfo>> messages = msgReceiver.getReceivedMessages();
+
+      int i = 0;
+      for (auto msgIt = messages.begin(); msgIt != messages.end(); ++msgIt) {
+        size_t offset = 0;
+        int j = 0;
+        for (auto bufIt = msgIt->begin(); bufIt != msgIt->end(); ++bufIt) {
+          int res = memcmp(g_sampleMessage + offset, bufIt->buffer.data(), bufIt->memberSize);
+
+          if (res != 0) {
+            std::cout << "FAILED: buffer mismatch in message #" << i << " member #" << j << "!\n";
+          }
+
+          offset += bufIt->memberSize;
+          j += 1;
+        }
+        i += 1;
+      }
+    }
+  }
+}
+
+
+// ================================================================================
 void multipleMessagesInStream() {
   std::cout << __FUNCTION__ << '\n';
 
   size_t constexpr bufSize = 9000;
   std::unique_ptr<unsigned char[]> aBuffer = std::make_unique<unsigned char[]>(bufSize);
 
-  size_t constexpr msgSize = sizeof(g_sampleMessage)-1;
+  {
+    size_t constexpr msgSize = sizeof(g_sampleMessage) - 1;
 
-  size_t bufOffset = 0;
-  while (bufOffset < bufSize) {
-    size_t const toCopy = std::min(msgSize, bufSize - bufOffset);
+    size_t bufOffset = 0;
+    while (bufOffset < bufSize) {
+      size_t const toCopy = std::min(msgSize, bufSize - bufOffset);
 
-    memcpy_s(aBuffer.get() + bufOffset, bufSize - bufOffset, g_sampleMessage, toCopy);
-    bufOffset += toCopy;
+      memcpy_s(aBuffer.get() + bufOffset, bufSize - bufOffset, g_sampleMessage, toCopy);
+      bufOffset += toCopy;
+    }
   }
 
 

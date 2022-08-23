@@ -7,5 +7,6 @@ namespace TEST {
   void readAndPop_twice();
   void readManyBytes();
   void multipleMessagesInStream();
+  void multiplePartsMessage();
 }
 #endif
