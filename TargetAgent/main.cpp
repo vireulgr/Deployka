@@ -73,22 +73,29 @@ void processFileChunkMessage(std::vector<Deployka::MemberInfo>& message) {
   size_t pos = receivedFilePath.find_last_of("/\\");
   std::string fileName = directoryToPutFiles + '/' + receivedFilePath.substr((pos == std::string::npos) ? 0 : (pos + 1));
 
-  // TODO destroy contents of file if file chunk has #0
+  std::ios::openmode appendOrTruncate = std::ios::app;
+
+  //memcpy(&val, message[6].buffer.data(), std::min(sizeof(val), message[6].buffer.size()));
+  if (std::all_of(message[6].buffer.cbegin(), message[6].buffer.cend(), [](unsigned char const c) { return c == '\0'; })) {
+    // chunk # is zero
+    appendOrTruncate = std::ios::trunc;
+  }
+
   std::ofstream ofs;
-  ofs.open(fileName, std::ios::binary | std::ios::out | std::ios::app);
+  ofs.open(fileName, std::ios::binary | std::ios::out | appendOrTruncate);
 
   if (ofs.is_open()) {
-    std::cout << "[proceFileChunkMsg] write " << message[8].buffer.size() << " bytes to file " << fileName << "\n";
+    std::cout << "[procFileChunkMsg] write " << message[8].buffer.size() << " bytes to file " << fileName << "\n";
     ofs.write(reinterpret_cast<char*>(message[8].buffer.data()), message[8].buffer.size());
     if (ofs.bad()) {
-      std::cout << "[proceFileChunkMsg] ERROR bad bit on file is set!\n";
+      std::cout << "[procFileChunkMsg] ERROR bad bit on file is set!\n";
     }
   }
   else {
     if (ofs.bad()) {
-      std::cout << "[proceFileChunkMsg] ERROR bad bit on file is set!\n";
+      std::cout << "[procFileChunkMsg] ERROR bad bit on file is set!\n";
     }
-    std::cout << "[proceFileChunkMsg] ERROR file open failed!\n";
+    std::cout << "[procFileChunkMsg] ERROR file open failed!\n";
     std::cout << fileName << '\n';
   }
   ofs.flush();

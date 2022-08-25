@@ -3,13 +3,6 @@
 #include <map>
 #include <vector>
 #include <string>
-// CLIENT REQUEST
-// size_t  | size_t   | array<char, dataSize> |
-// command | dataSize | serialized data       |
-
-// SERVER RESPONSE
-// size_t  | size_t   | array<char, dataSize> |
-// command | dataSize | serialized data       |
 
 namespace Deployka {
 
@@ -32,7 +25,7 @@ namespace Deployka {
 
   struct Message {
     MessageType m_type;
-    int m_size;
+    size_t m_totalSize;
     std::vector<unsigned char> m_data;
   };
 
@@ -55,18 +48,18 @@ namespace Deployka {
 
   constexpr size_t g_memberTypeSizes[] = {0, sizeof(size_t), sizeof(bool), sizeof(long long), sizeof(long double)};
 
-  std::map<MessageType, std::vector<MemberType>> const g_commands = { 
+  std::map<MessageType, std::vector<MemberType>> const g_commands = {
     {
       DMT_File,
-      // cmd code   file name size  file name   file data Size  file data
+      // 0 cmd code |1 file name size |2 file name |3 file data Size |4 file data
       {MT_longLong, MT_dynamicSize, MT_dynamic, MT_dynamicSize, MT_dynamic}
     },
     {
       DMT_FileChunk,
-      // | file chunk command | file name length | file name | file last mod time length |
-      {MT_longLong,              MT_dynamicSize,   MT_dynamic,  MT_dynamicSize,
-      // file last mod time (ISD date string) | file size | chunk number | chunk length | chunk file data |
-      MT_dynamic,                              MT_longLong, MT_longLong,  MT_dynamicSize, MT_dynamic}
+      // | 0 file chunk command | 1 file name length | 2 file name | 3 file last mod time length |
+      {MT_longLong,              MT_dynamicSize,       MT_dynamic,   MT_dynamicSize,
+      // 4 file last mod time (ISD date string) | 5 total file size | 6 chunk number | 7 chunk length | 8 chunk file data |
+      MT_dynamic,                                 MT_longLong,        MT_longLong,     MT_dynamicSize,  MT_dynamic}
     }
     // TODO
   };
