@@ -7,7 +7,7 @@
 namespace Deployka {
 
   std::vector<MemberInfo> buildMemberInfo(MessageType msgType) {
-    std::vector<MemberType> const memberTypeVec = Deployka::g_commands.at(msgType);
+    std::vector<MemberType> const memberTypeVec = Deployka::g_messageTypes.at(msgType);
 
     std::vector<MemberInfo> result;
     size_t memberOffset = 0;

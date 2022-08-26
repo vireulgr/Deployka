@@ -55,7 +55,7 @@ namespace Deployka {
 
   constexpr size_t g_memberTypeSizes[] = {0, sizeof(size_t), sizeof(bool), sizeof(long long), sizeof(long double)};
 
-  std::map<MessageType, std::vector<MemberType>> const g_commands = { 
+  std::map<MessageType, std::vector<MemberType>> const g_messageTypes = { 
     {
       DMT_File,
       // cmd code   file name size  file name   file data Size  file data
