@@ -328,10 +328,25 @@ int main(int argc, char* argv[]) {
         sendFileCommand(sock, fileName);
       }
       if (c == 'h') {
-        //char const fileName[] = "E:\\prog\\cpp\\Deployka\\build\\TargetAgent\\Debug\\TargetAgent.pdb";
-        char const fileName[] = "I:\\prog_n_gamedev\\VCS\\Deployka\\build\\TargetAgent\\Debug\\TargetAgent.pdb";
-        //char const fileName[] = "E:\\prog\\cpp\\Deployka\\somefile.txt";
-        sendFileChunkedCommand(sock, fileName);
+        char const* const fileNames[] = {
+          "E:\\prog\\cpp\\Deployka\\build\\TargetAgent\\Debug\\TargetAgent.pdb",
+          "I:\\prog_n_gamedev\\VCS\\Deployka\\build\\TargetAgent\\Debug\\TargetAgent.pdb"
+        };
+        char const* existingFile = nullptr;
+#if defined(_MSC_VER) && defined(USE_WIN_NATIVE_FILE_IO)
+        for (int i = 0; i < _countof(fileNames); i++) {
+          DWORD fileAttrib = GetFileAttributes(fileNames[i]);
+          if ((fileAttrib != INVALID_FILE_ATTRIBUTES) && !(fileAttrib & FILE_ATTRIBUTE_DIRECTORY)) {
+            existingFile = fileNames[i];
+          }
+        }
+#else
+#endif
+        if (existingFile == nullptr) {
+          std::cout << "Error! Cannot find file to transfer!\n";
+          continue;
+        }
+        sendFileChunkedCommand(sock, existingFile);
       }
 
       std::cout << "Enter q to quit; h to send chukned file; g to send small file\n";
