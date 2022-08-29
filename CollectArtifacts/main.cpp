@@ -8,7 +8,7 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 
-#define _TESTS_
+//#define _TESTS_
 
 namespace pt = boost::property_tree;
 namespace po = boost::program_options;
@@ -137,13 +137,18 @@ void TEST_regex() {
 }
 
 void TEST_substVars() {
-  std::string example = R"str(<Dependency>$SrcRoot\VI\WebClient\Backend\WebServer\$Platform\$Config\WebServer.exe</Dependency>
+  std::string example = 
+R"str(<Dependency>$SrcRoot\VI\WebClient\Backend\WebServer\$Platform\$Config\WebServer.exe</Dependency>
+    <Dependency>$SrcRoot\LicServer\DlLicModuleShell\$Platform\$Config\LicModShell.exe</Dependency>
+    <SourceDirectory>$($RemoteDiskLetter):\Configs</SourceDirectory>
+    <Dependency>$($RemoteDiskLetter):\DL80\SecServerConsole\BinVI\$Config\$Platform\ConsoleVi.exe</Dependency>
     <Dependency>$SrcRoot\DL80\SecServerConsole\BinVI\$($Config)Vi\$Platform\ServerConsoleVi.exe</Dependency>)str";
 
   std::map<std::string, std::string> varsHash = {
     {"platform", "x86"},
-    {"srcroot", "e:\\files\\system32\\drivers"},
-    {"config", "debug"}
+    {"remotediskletter", "E"},
+    {"srcroot", R"-(E:\Files\System32\Drivers\etc\hosts)-"},
+    {"config", "Debug"}
   };
 
   std::string res = substVars(varsHash, example);
@@ -167,7 +172,6 @@ std::string substVars(std::map<std::string, std::string> & varsHash, std::string
   std::regex re{ R"-(\$\([^)]*\))-" };
 
   std::smatch matchResults;
-  //std::regex_search(result, matchResults, re);
 
   auto reItEnd = std::sregex_iterator();
 
@@ -177,46 +181,54 @@ std::string substVars(std::map<std::string, std::string> & varsHash, std::string
     matchResults = *reIt;
     std::ssub_match item = matchResults[0];
 
-    result.append(matchResults.prefix().str());
+    result.append(matchResults.prefix().first, matchResults.prefix().second);
     std::string tmp(item.first + 2, item.second - 1);
     str_to_lower(tmp);
 
     std::string tmpRes = substVars(varsHash, tmp);
 
-    //result.replace(item.first, item.second, tmpRes);
     result.append(tmpRes);
   }
 
-  result.append(matchResults.suffix().str());
+  if (matchResults.ready()) {
+    std::ssub_match const & suffix = matchResults.suffix();
+
+    if (suffix.length() > 0) {
+      result.append(suffix.first, suffix.second);
+      inStr = std::move(result);
+      result.resize(0);
+      result.reserve(inStr.length());
+    }
+    std::smatch tmp;
+    matchResults.swap(tmp);
+  }
+
   //foreach (std::ssub_match match in matchResults) {
   //	Console.WriteLine(match.str());
   //}
 
   std::regex re2{ R"-(\$\w[0-9a-zA-Z]*)-" };
 
-  //std::regex_search(result, matchResults2, re2);
   reIt = std::sregex_iterator(inStr.begin(), inStr.end(), re2);
 
   for (; reIt != reItEnd; ++reIt) {
     matchResults = *reIt;
-    std::ssub_match item = matchResults[0];
-    result.append(matchResults.prefix().str());
+    std::ssub_match const & item = matchResults[0];
+    result.append(matchResults.prefix().first, matchResults.prefix().second);
     std::string tmp = item.str().substr(1);
-    //Console.WriteLine("Subst item {0}", tmp);
-    if (!varsHash.count(str_to_lower(tmp))) {
-      //Console.WriteLine("Cannot item item {0} in hash", tmp);
-      std::cout << "Cannot item item " << tmp << " in hash\n";
+    str_to_lower(tmp);
+
+    if (!varsHash.count(tmp)) {
+
+      std::cout << "Cannot find item " << tmp << " in hash\n";
+      result.append(item.first, item.second);
       continue;
     }
 
-    std::string varsValue = varsHash.at(str_to_lower(tmp));
-
-    //Console.WriteLine("found var in hash: {0}", varsValue);
-    //result.replace(item.first, item.second, varsValue);
-    result.append(varsValue);
+    result.append(varsHash.at(tmp));
   }
 
-  result.append(matchResults.suffix().str());
+  result.append(matchResults.suffix().first, matchResults.suffix().second);
 
   return result;
 }
