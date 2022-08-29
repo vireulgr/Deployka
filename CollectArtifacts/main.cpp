@@ -1,20 +1,39 @@
 #include <iostream>
 #include <string>
 #include <exception>
+#include <regex>
 
 #include <boost/program_options.hpp>
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 
+#define _TESTS_
+
 namespace pt = boost::property_tree;
 namespace po = boost::program_options;
 
-struct DeployArtifact {
-  std::string m_name;
-  std::string m_pathToDir;
-  std::vector<std::string> m_dependencies;
+namespace Deployka {
+enum DependencyType : unsigned int {
+  DDT_none,
+  DDT_file,
+  DDT_directory,
+  DDT_pattern,
+  DDT_MAX_VALUE
 };
+
+struct ArtifactDependency {
+  DependencyType type;
+  std::string path;
+  std::string pattern;
+};
+
+struct Artifact {
+  std::string name;
+  std::string pathToDir;
+  std::vector<ArtifactDependency> dependencies;
+};
+}
 
 template <class T>
 std::ostream& operator << (std::ostream& os, std::vector<T> const& vec) {
@@ -30,15 +49,33 @@ std::ostream& operator << (std::ostream& os, std::vector<T> const& vec) {
     return os;
 }
 
-std::ostream& operator << (std::ostream& os, DeployArtifact const& aTarget) {
-  os << aTarget.m_name << " (" << aTarget.m_pathToDir << ")\n";
+std::ostream& operator << (std::ostream& os, Deployka::ArtifactDependency const& aDependency) {
+  switch (aDependency.type) {
+  case Deployka::DDT_directory:
+    os << "Directory: " << aDependency.path;
+    break;
+  case Deployka::DDT_file:
+    os << "File: " << aDependency.path;
+    break;
+  case Deployka::DDT_pattern:
+    os << "Pattern: " << aDependency.path << '/' << aDependency.pattern;
+    break;
+  default:
+    os << "UNKNOWN (Type: " << aDependency.type << "path: " << aDependency.path << "; pattern: " << aDependency.pattern << ')';
+    break;
+  }
+  return os;
+}
+
+std::ostream& operator << (std::ostream& os, Deployka::Artifact const& aTarget) {
+  os << aTarget.name << " (" << aTarget.pathToDir << ")\n";
   os << "\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n";
-  os << aTarget.m_dependencies;
+  os << aTarget.dependencies;
   os << "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
   return os;
 }
 
-std::vector<DeployArtifact> g_targets;
+std::vector<Deployka::Artifact> g_targets;
 
 // Опции:
 // 1) путь к папке с конфигом
@@ -50,8 +87,7 @@ std::vector<DeployArtifact> g_targets;
 //
 // Читает конфиг, в нём все цели, для которых SrcRoot в текущей директории
 //
-// Если там какие нибудь glob параметры или параметры типа "всю папку мне запили" то это необходимо преобразовать к просто списку
-//     фйалов для обработки
+// преобразовать все подстановки вида $identifier и str$($identifier)str
 //
 // Преобразование из какого-то формата задания в конкретный список файлов должно происходить перед передачей по сети/копированием в папку,
 //     т.к. на этапе чтения конфига не известно какие именно файлы нужны из тех, что подходят под шаблон (например, не известно свежий ли файл)
@@ -78,8 +114,125 @@ std::vector<DeployArtifact> g_targets;
 // там подождать ответа
 //
 
+std::string substVars(std::map<std::string, std::string>& varsHash, std::string & inStr);
+
+void TEST_regex() {
+  std::string simpleId = "blah blah $someIdentifier bpowjentjb";
+
+  std::regex re1{ R"-(\$\w[0-9a-zA-Z]*)-" };
+
+  std::smatch matchResults;
+  bool matchRes = std::regex_search(simpleId, matchResults, re1);
+
+  std::cout << "match res: " << matchRes << '\n';
+
+
+  std::regex re2{ R"-(\$\([^)]*\))-" };
+
+  std::string p11dId = "blah blahe$($wasya)eworn poen";
+
+  matchRes = std::regex_search(p11dId, matchResults, re2);
+
+  std::cout << "match res: " << matchRes << '\n';
+}
+
+void TEST_substVars() {
+  std::string example = R"str(<Dependency>$SrcRoot\VI\WebClient\Backend\WebServer\$Platform\$Config\WebServer.exe</Dependency>
+    <Dependency>$SrcRoot\DL80\SecServerConsole\BinVI\$($Config)Vi\$Platform\ServerConsoleVi.exe</Dependency>)str";
+
+  std::map<std::string, std::string> varsHash = {
+    {"platform", "x86"},
+    {"srcroot", "e:\\files\\system32\\drivers"},
+    {"config", "debug"}
+  };
+
+  std::string res = substVars(varsHash, example);
+
+  std::cout << "result: " << res;
+}
+
+std::string & str_to_lower(std::string & in) {
+  std::transform(in.begin(), in.end(), in.begin(), [](char c) { return (char)std::tolower(c); });
+  return in;
+}
+
+/*!
+* @brief substitudes the value of the variable where the name of the variable occurs with leading '$'
+*        and reparses text inside $(...) (to separate variable names with plain text $($arch)bit => 64bit)
+*/
+std::string substVars(std::map<std::string, std::string> & varsHash, std::string & inStr) {
+
+  std::string result;
+
+  std::regex re{ R"-(\$\([^)]*\))-" };
+
+  std::smatch matchResults;
+  //std::regex_search(result, matchResults, re);
+
+  auto reItEnd = std::sregex_iterator();
+
+  auto reIt = std::sregex_iterator(inStr.begin(), inStr.end(), re);
+
+  for (; reIt != reItEnd; ++reIt) {
+    matchResults = *reIt;
+    std::ssub_match item = matchResults[0];
+
+    result.append(matchResults.prefix().str());
+    std::string tmp(item.first + 2, item.second - 1);
+    str_to_lower(tmp);
+
+    std::string tmpRes = substVars(varsHash, tmp);
+
+    //result.replace(item.first, item.second, tmpRes);
+    result.append(tmpRes);
+  }
+
+  result.append(matchResults.suffix().str());
+  //foreach (std::ssub_match match in matchResults) {
+  //	Console.WriteLine(match.str());
+  //}
+
+  std::regex re2{ R"-(\$\w[0-9a-zA-Z]*)-" };
+
+  //std::regex_search(result, matchResults2, re2);
+  reIt = std::sregex_iterator(inStr.begin(), inStr.end(), re2);
+
+  for (; reIt != reItEnd; ++reIt) {
+    matchResults = *reIt;
+    std::ssub_match item = matchResults[0];
+    result.append(matchResults.prefix().str());
+    std::string tmp = item.str().substr(1);
+    //Console.WriteLine("Subst item {0}", tmp);
+    if (!varsHash.count(str_to_lower(tmp))) {
+      //Console.WriteLine("Cannot item item {0} in hash", tmp);
+      std::cout << "Cannot item item " << tmp << " in hash\n";
+      continue;
+    }
+
+    std::string varsValue = varsHash.at(str_to_lower(tmp));
+
+    //Console.WriteLine("found var in hash: {0}", varsValue);
+    //result.replace(item.first, item.second, varsValue);
+    result.append(varsValue);
+  }
+
+  result.append(matchResults.suffix().str());
+
+  return result;
+}
+
+
+
 int main(int argc, char * argv[]) {
 
+  std::ios::sync_with_stdio(false);
+
+#ifdef _TESTS_
+  argc;
+  argv;
+  //TEST_regex();
+  TEST_substVars();
+#else
   std::string configFile;
 
   try {
@@ -140,36 +293,49 @@ int main(int argc, char * argv[]) {
 
   for (pt::ptree::value_type & targetNode : aTree.get_child("Root.Targets")) {
 
-    DeployArtifact aTarget;
+    Deployka::Artifact aTarget;
 
-    aTarget.m_name = targetNode.second.get<std::string>("Name");
-    aTarget.m_pathToDir = targetNode.second.get<std::string>("PathToDirectory");
+    aTarget.name = targetNode.second.get<std::string>("Name");
+    aTarget.pathToDir = targetNode.second.get<std::string>("PathToDirectory");
     for (pt::ptree::value_type& dependencyNode : targetNode.second.get_child("Dependencies")) {
-      //size_t srcStrSize = dependencyNode.first.size();
-      //std::unique_ptr<wchar_t[]> tmpWCharBuf = std::make_unique<wchar_t[]>(srcStrSize);
-      //std::mbstowcs(tmpWCharBuf.get(), dependencyNode.first.c_str(), srcStrSize);
 
-      //std::cout
-      //  << "f: " << dependencyNode.first << "; "
-      //  << "s: " << dependencyNode.second.data() << "; "
-      //  << "xmlattrs: " << dependencyNode.second.count("<xmlattr>") << "\n";
+      Deployka::ArtifactDependency aDependency;
+      aDependency.type = Deployka::DDT_none;
 
       if (dependencyNode.second.count("<xmlattr>")) {
-        std::cout
-          << "rd: " << dependencyNode.second.count("RootDir") << "; "
-          << "pat: " << dependencyNode.second.count("Pattern") << ";\n";
 
         pt::ptree::value_type & xmlAttrVal = dependencyNode.second.get_child("<xmlattr>").front();
-        //pt::ptree::value_type & xmlRootDir = dependencyNode.second.get_child("RootDir").front();
-        //pt::ptree::value_type & xmlPattern = dependencyNode.second.get_child("Pattern").front();
 
-        std::cout << xmlAttrVal.first << " => " << xmlAttrVal.second.data() << '\n';
-        //std::cout << xmlRootDir.first << "\n";
-        //std::cout << xmlPattern.first << "\n";
+        if (xmlAttrVal.first == "type" && xmlAttrVal.second.data() == "pattern") {
+          std::string rootDirStr = dependencyNode.second.get<std::string>("RootDir");
+          std::string patternStr = dependencyNode.second.get<std::string>("Pattern");
+          //std::cout << "dependency is a pattern: " << patternStr << " with root dir: " << rootDirStr << "\n";
+          aDependency.type = Deployka::DDT_pattern;
+          aDependency.path = rootDirStr;
+          aDependency.pattern = patternStr;
+        }
+        else if (xmlAttrVal.first == "type" && xmlAttrVal.second.data() == "directory") {
+          //std::cout << "dependency is a directory: " << dependencyNode.second.data() << "\n";
+          aDependency.type = Deployka::DDT_directory;
+          aDependency.path = dependencyNode.second.data();
+        }
+        else if (xmlAttrVal.first == "type" && xmlAttrVal.second.data() == "file") {
+          //std::cout << "dependency is a file: " << dependencyNode.second.data() << "\n";
+          aDependency.type = Deployka::DDT_file;
+          aDependency.path = dependencyNode.second.data();
+        }
+        else {
+          std::cout << "[W] Dependency is unknown type with data: " << dependencyNode.second.data() << "\n";
+        }
+      }
+      else {
+          //std::cout << "dependency is a file: " << dependencyNode.second.data() << "\n";
+          aDependency.type = Deployka::DDT_file;
+          aDependency.path = dependencyNode.second.data();
       }
 
-      if (dependencyNode.first == "Dependency") {
-        aTarget.m_dependencies.emplace_back(dependencyNode.second.data());
+      if (dependencyNode.first == "Dependency" && aDependency.type != Deployka::DDT_none) {
+        aTarget.dependencies.emplace_back(aDependency);
       }
     }
 
@@ -187,6 +353,9 @@ int main(int argc, char * argv[]) {
   catch(...) {
       std::cerr << "Exception of unknown type!\n";
   }
+#endif
+
+
 
   return 0;
 }
