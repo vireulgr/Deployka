@@ -116,7 +116,7 @@ namespace std {
 // там подождать ответа
 //
 
-std::string substVars(std::map<std::string, std::string>& varsHash, std::string & inStr);
+std::string substVars(std::map<std::string, std::string> const & varsHash, std::string & inStr);
 
 void TEST_regex() {
   std::string simpleId = "blah blah $someIdentifier bpowjentjb";
@@ -175,7 +175,7 @@ std::string & str_to_lower(std::string & in) {
 * @param[in] inStr string to substitude to
 * @return string with all found variables substituted
 */
-std::string substVars(std::map<std::string, std::string> & varsHash, std::string & inStr) {
+std::string substVars(std::map<std::string, std::string> const & varsHash, std::string & inStr) {
 
   std::string result;
 
@@ -237,7 +237,36 @@ std::string substVars(std::map<std::string, std::string> & varsHash, std::string
     result.append(varsHash.at(tmp));
   }
 
-  result.append(matchResults.suffix().first, matchResults.suffix().second);
+  if (matchResults.ready()) {
+    result.append(matchResults.suffix().first, matchResults.suffix().second);
+  }
+  else if (result.empty()) {
+    return inStr;
+  }
+
+  return result;
+}
+
+/*!
+ * @brief read settings section from XML file
+ * @param[in] configFile path to XML file
+ * @return settings names and values
+*/
+std::map<std::string, std::string> loadParamsFromXML(std::string const& configFile) {
+
+  std::map<std::string, std::string> result;
+  pt::ptree aTree;
+
+  pt::read_xml(configFile, aTree);
+
+  for (pt::ptree::value_type & targetNode : aTree.get_child("Root.Settings")) {
+
+    std::string name = targetNode.second.get<std::string>("Name");
+    str_to_lower(name);
+    std::string value = targetNode.second.get<std::string>("Value");
+
+    result.insert({ name, value });
+  }
 
   return result;
 }
@@ -248,27 +277,27 @@ std::string substVars(std::map<std::string, std::string> & varsHash, std::string
  * @return vector of targets filled from XML file
 */
 std::vector<Deployka::Artifact> loadTargetsFromXML(std::string const & configFile) {
-//
+
   std::vector<Deployka::Artifact> result;
-  pt::ptree aTree; //
- //
-  pt::read_xml(configFile, aTree); //
-//
+  pt::ptree aTree;
+
+  pt::read_xml(configFile, aTree);
+
   for (pt::ptree::value_type & targetNode : aTree.get_child("Root.Targets")) {
-//
+
     Deployka::Artifact aTarget;
-//
+
     aTarget.name = targetNode.second.get<std::string>("Name");
     aTarget.pathToDir = targetNode.second.get<std::string>("PathToDirectory");
     for (pt::ptree::value_type& dependencyNode : targetNode.second.get_child("Dependencies")) {
-//
+
       Deployka::ArtifactDependency aDependency;
       aDependency.type = Deployka::DDT_none;
-//
+
       if (dependencyNode.second.count("<xmlattr>")) {
-//
+
         pt::ptree::value_type & xmlAttrVal = dependencyNode.second.get_child("<xmlattr>").front();
-//
+
         if (xmlAttrVal.first == "type" && xmlAttrVal.second.data() == "pattern") {
           std::string rootDirStr = dependencyNode.second.get<std::string>("RootDir");
           std::string patternStr = dependencyNode.second.get<std::string>("Pattern");
@@ -296,15 +325,15 @@ std::vector<Deployka::Artifact> loadTargetsFromXML(std::string const & configFil
           aDependency.type = Deployka::DDT_file;
           aDependency.path = dependencyNode.second.data();
       }
-//
+
       if (dependencyNode.first == "Dependency" && aDependency.type != Deployka::DDT_none) {
         aTarget.dependencies.emplace_back(aDependency);
       }
     }
-//
+
     result.emplace_back(std::move(aTarget));
   }
-//
+
   return result;
 }
 
@@ -392,30 +421,32 @@ int main(int argc, char * argv[]) {
 
   std::vector<Deployka::Artifact> targets = loadTargetsFromXML(configFile);
   std::vector<Deployka::Artifact> toProcess;
-//
+
   for (std::string const& target : requestedTargets) {
     auto foundIt = std::find_if(targets.begin(), targets.end(), [&target](Deployka::Artifact artifact) { return artifact.name == target; });
     if (foundIt == targets.end()) {
       std::cout << "[W] Requested target " << target << " not found in XML\n";
       continue;
-    } //
+    }
     toProcess.push_back(*foundIt);
-  } //
-//
+  }
+
   std::cout << "targets to process:\n" << toProcess << '\n';
-//
-  // TODO load settings from same XML config file
-  std::map<std::string, std::string> varsHash = {
-    {"platform", std::to_string(vm["mem-model"].as<int>())},
-    {"srcroot", vm["src-root"].as<std::string>()},
-    {"outroot", R"-(E:\files\OutRoot)-"},
-    {"config", vm["variant"].as<std::string>()}
-  };
-//
+
+  std::map<std::string, std::string> varsHash = loadParamsFromXML(configFile);
+  varsHash["platform"] = std::to_string(vm["mem-model"].as<int>());
+  varsHash["srcroot"] = vm["src-root"].as<std::string>();
+  varsHash["config"] = vm["variant"].as<std::string>();
+
+  auto varsMapIt = varsHash.begin();
+  for (; varsMapIt != varsHash.end(); ++varsMapIt) {
+    varsMapIt->second = substVars(varsHash, varsMapIt->second);
+  }
+
   for (Deployka::Artifact& target : toProcess) {
-//
+
     target.pathToDir = substVars(varsHash, target.pathToDir);
-//
+
     for (Deployka::ArtifactDependency& dependency : target.dependencies) {
       dependency.path = substVars(varsHash, dependency.path);
       if (!dependency.pattern.empty()) {
@@ -423,7 +454,7 @@ int main(int argc, char * argv[]) {
       }
     }
   }
-//
+
   std::cout << "after subst vars: \n" << toProcess << '\n';
 
   } // /TRY
