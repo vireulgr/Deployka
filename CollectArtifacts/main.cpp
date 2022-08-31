@@ -117,7 +117,7 @@ namespace std {
 // там подождать ответа
 //
 
-std::string substVars(std::map<std::string, std::string>& varsHash, std::string & inStr);
+std::string substVars(std::map<std::string, std::string> const & varsHash, std::string & inStr);
 
 void TEST_regex() {
   std::string simpleId = "blah blah $some_Identifier bpowjentjb";
@@ -176,7 +176,7 @@ inline std::string & str_to_lower(std::string & in) {
 * @param[in] inStr string to substitude to
 * @return string with all found variables substituted
 */
-std::string substVars(std::map<std::string, std::string> & varsHash, std::string & inStr) {
+std::string substVars(std::map<std::string, std::string> const & varsHash, std::string & inStr) {
 
   std::string result;
 
@@ -238,7 +238,36 @@ std::string substVars(std::map<std::string, std::string> & varsHash, std::string
     result.append(varsHash.at(tmp));
   }
 
-  result.append(matchResults.suffix().first, matchResults.suffix().second);
+  if (matchResults.ready()) {
+    result.append(matchResults.suffix().first, matchResults.suffix().second);
+  }
+  else if (result.empty()) {
+    return inStr;
+  }
+
+  return result;
+}
+
+/*!
+ * @brief read settings section from XML file
+ * @param[in] configFile path to XML file
+ * @return settings names and values
+*/
+std::map<std::string, std::string> loadParamsFromXML(std::string const& configFile) {
+
+  std::map<std::string, std::string> result;
+  pt::ptree aTree;
+
+  pt::read_xml(configFile, aTree);
+
+  for (pt::ptree::value_type & targetNode : aTree.get_child("Root.Settings")) {
+
+    std::string name = targetNode.second.get<std::string>("Name");
+    str_to_lower(name);
+    std::string value = targetNode.second.get<std::string>("Value");
+
+    result.insert({ name, value });
+  }
 
   return result;
 }
@@ -405,13 +434,15 @@ int main(int argc, char * argv[]) {
 
   std::cout << "targets to process:\n" << toProcess << '\n';
 
-  // TODO load settings from same XML config file
-  std::map<std::string, std::string> varsHash = {
-    {"memmodel", std::to_string(vm["mem-model"].as<int>())},
-    {"srcroot", vm["src-root"].as<std::string>()},
-    {"outroot", R"-(E:\files\OutRoot)-"},
-    {"variant", vm["variant"].as<std::string>()}
-  };
+  std::map<std::string, std::string> varsHash = loadParamsFromXML(configFile);
+  varsHash["memmodel"] = std::to_string(vm["mem-model"].as<int>());
+  varsHash["srcroot"] = vm["src-root"].as<std::string>();
+  varsHash["variant"] = vm["variant"].as<std::string>();
+
+  auto varsMapIt = varsHash.begin();
+  for (; varsMapIt != varsHash.end(); ++varsMapIt) {
+    varsMapIt->second = substVars(varsHash, varsMapIt->second);
+  }
 
   for (Deployka::Artifact& target : toProcess) {
 
