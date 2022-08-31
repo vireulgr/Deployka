@@ -115,19 +115,20 @@ namespace Deployka {
 
   //================================================================================
   void printHex(std::vector<unsigned char> & vec) {
-    std::cout << "HEX:\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n";
-    std::cout << std::hex << std::setfill('0');
-    if (vec.size() > 262) {
-      size_t endClamp = vec.size() - 128;
-      printHexRange(vec, 0, 128);
-      std::cout << "\n...\n";
-      printHexRange(vec, endClamp, vec.size());
-    }
-    else {
-      printHexRange(vec, 0, vec.size());
-    }
-    std::cout << "<<<<<<<\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
-    std::cout << std::dec << std::setfill(' ');
+    printHex(vec.data(), vec.size());
+    //std::cout << "HEX:\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n";
+    //std::cout << std::hex << std::setfill('0');
+    //if (vec.size() > 262) {
+    //  size_t endClamp = vec.size() - 128;
+    //  printHexRange(vec, 0, 128);
+    //  std::cout << "\n...\n";
+    //  printHexRange(vec, endClamp, vec.size());
+    //}
+    //else {
+    //  printHexRange(vec, 0, vec.size());
+    //}
+    //std::cout << "<<<<<<<\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
+    //std::cout << std::dec << std::setfill(' ');
   }
 
 } // namespace Deployka

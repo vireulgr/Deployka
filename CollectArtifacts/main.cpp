@@ -75,7 +75,6 @@ namespace std {
     os << "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
     return os;
   }
-
 }
 
 
@@ -89,11 +88,12 @@ namespace std {
 //
 // Читает конфиг, в нём все цели, для которых SrcRoot в текущей директории
 //
-// преобразовать все подстановки вида $identifier и str$($identifier)str
+// Преобразовать все подстановки вида $identifier и str$($identifier)str
 //
 // Преобразование из какого-то формата задания в конкретный список файлов должно происходить перед передачей по сети/копированием в папку,
 //     т.к. на этапе чтения конфига не известно какие именно файлы нужны из тех, что подходят под шаблон (например, не известно свежий ли файл)
 //
+// Режим 1
 // Если нужно прост положить в папку назначения
 //     Для каждого файла:
 //         если целевой файл есть и его дата изменения позже или равна дате изменеия исходного файла
@@ -102,6 +102,7 @@ namespace std {
 //         копировать файл с перезаписью
 //
 //
+// Режим 2
 // Если нужно передать файлы по сети
 //     Для каждого файла:
 //         прочитать содержимое файла в буфер
@@ -119,14 +120,14 @@ namespace std {
 std::string substVars(std::map<std::string, std::string>& varsHash, std::string & inStr);
 
 void TEST_regex() {
-  std::string simpleId = "blah blah $someIdentifier bpowjentjb";
+  std::string simpleId = "blah blah $some_Identifier bpowjentjb";
 
-  std::regex re1{ R"-(\$\w[0-9a-zA-Z]*)-" };
+  std::regex re1{ R"-(\$\w[_9a-zA-Z]*)-" };
 
   std::smatch matchResults;
   bool matchRes = std::regex_search(simpleId, matchResults, re1);
 
-  std::cout << "match res: " << matchRes << '\n';
+  std::cout << "match res (" << matchRes << "): " << matchResults[0].str() << '\n';
 
 
   std::regex re2{ R"-(\$\([^)]*\))-" };
@@ -135,7 +136,7 @@ void TEST_regex() {
 
   matchRes = std::regex_search(p11dId, matchResults, re2);
 
-  std::cout << "match res: " << matchRes << '\n';
+  std::cout << "match res (" << matchRes << "): " << matchResults[0].str() << '\n';
 }
 
 void TEST_substVars() {
@@ -147,10 +148,10 @@ R"str(<Dependency>$SrcRoot\VI\WebClient\Backend\WebServer\$Platform\$Config\WebS
     <Dependency>$SrcRoot\DL80\SecServerConsole\BinVI\$($Config)Vi\$Platform\ServerConsoleVi.exe</Dependency>)str";
 
   std::map<std::string, std::string> varsHash = {
-    {"platform", "x86"},
+    {"memmodel", "x86"},
     {"remotediskletter", "E"},
     {"srcroot", R"-(E:\Files\System32\Drivers\etc\hosts)-"},
-    {"config", "Debug"}
+    {"variant", "Debug"}
   };
 
   std::string res = substVars(varsHash, example);
@@ -159,11 +160,11 @@ R"str(<Dependency>$SrcRoot\VI\WebClient\Backend\WebServer\$Platform\$Config\WebS
 }
 
 /*!
- * @brief apply lowercase to each char in string
+ * @brief apply tolower to each char in string
  * @param [in] in string to lowercase
  * @return same string but lowercased
 */
-std::string & str_to_lower(std::string & in) {
+inline std::string & str_to_lower(std::string & in) {
   std::transform(in.begin(), in.end(), in.begin(), [](char c) { return (char)std::tolower(c); });
   return in;
 }
@@ -248,27 +249,27 @@ std::string substVars(std::map<std::string, std::string> & varsHash, std::string
  * @return vector of targets filled from XML file
 */
 std::vector<Deployka::Artifact> loadTargetsFromXML(std::string const & configFile) {
-//
+
   std::vector<Deployka::Artifact> result;
-  pt::ptree aTree; //
- //
-  pt::read_xml(configFile, aTree); //
-//
+  pt::ptree aTree;
+
+  pt::read_xml(configFile, aTree);
+
   for (pt::ptree::value_type & targetNode : aTree.get_child("Root.Targets")) {
-//
+
     Deployka::Artifact aTarget;
-//
+
     aTarget.name = targetNode.second.get<std::string>("Name");
     aTarget.pathToDir = targetNode.second.get<std::string>("PathToDirectory");
     for (pt::ptree::value_type& dependencyNode : targetNode.second.get_child("Dependencies")) {
-//
+
       Deployka::ArtifactDependency aDependency;
       aDependency.type = Deployka::DDT_none;
-//
+
       if (dependencyNode.second.count("<xmlattr>")) {
-//
+
         pt::ptree::value_type & xmlAttrVal = dependencyNode.second.get_child("<xmlattr>").front();
-//
+
         if (xmlAttrVal.first == "type" && xmlAttrVal.second.data() == "pattern") {
           std::string rootDirStr = dependencyNode.second.get<std::string>("RootDir");
           std::string patternStr = dependencyNode.second.get<std::string>("Pattern");
@@ -296,15 +297,15 @@ std::vector<Deployka::Artifact> loadTargetsFromXML(std::string const & configFil
           aDependency.type = Deployka::DDT_file;
           aDependency.path = dependencyNode.second.data();
       }
-//
+
       if (dependencyNode.first == "Dependency" && aDependency.type != Deployka::DDT_none) {
         aTarget.dependencies.emplace_back(aDependency);
       }
     }
-//
+
     result.emplace_back(std::move(aTarget));
   }
-//
+
   return result;
 }
 
@@ -316,8 +317,8 @@ int main(int argc, char * argv[]) {
 #ifdef _TESTS_
   argc;
   argv;
-  //TEST_regex();
-  TEST_substVars();
+  TEST_regex();
+  //TEST_substVars();
 #else
   std::string configFile;
   std::vector<std::string> requestedTargets;
@@ -392,30 +393,30 @@ int main(int argc, char * argv[]) {
 
   std::vector<Deployka::Artifact> targets = loadTargetsFromXML(configFile);
   std::vector<Deployka::Artifact> toProcess;
-//
+
   for (std::string const& target : requestedTargets) {
     auto foundIt = std::find_if(targets.begin(), targets.end(), [&target](Deployka::Artifact artifact) { return artifact.name == target; });
     if (foundIt == targets.end()) {
       std::cout << "[W] Requested target " << target << " not found in XML\n";
       continue;
-    } //
+    }
     toProcess.push_back(*foundIt);
-  } //
-//
+  }
+
   std::cout << "targets to process:\n" << toProcess << '\n';
-//
+
   // TODO load settings from same XML config file
   std::map<std::string, std::string> varsHash = {
-    {"platform", std::to_string(vm["mem-model"].as<int>())},
+    {"memmodel", std::to_string(vm["mem-model"].as<int>())},
     {"srcroot", vm["src-root"].as<std::string>()},
     {"outroot", R"-(E:\files\OutRoot)-"},
-    {"config", vm["variant"].as<std::string>()}
+    {"variant", vm["variant"].as<std::string>()}
   };
-//
+
   for (Deployka::Artifact& target : toProcess) {
-//
+
     target.pathToDir = substVars(varsHash, target.pathToDir);
-//
+
     for (Deployka::ArtifactDependency& dependency : target.dependencies) {
       dependency.path = substVars(varsHash, dependency.path);
       if (!dependency.pattern.empty()) {
@@ -423,7 +424,7 @@ int main(int argc, char * argv[]) {
       }
     }
   }
-//
+
   std::cout << "after subst vars: \n" << toProcess << '\n';
 
   } // /TRY

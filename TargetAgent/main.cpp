@@ -110,12 +110,14 @@ class DeploykaTcpConnection: public boost::enable_shared_from_this<DeploykaTcpCo
   std::array<unsigned char, Deployka::RECV_BUF_SIZE> m_receiveBuffer;
 
   Deployka::MessageReceiver m_messageReceiver;
+  //boost::asio::io_context& context;
 
   boost::asio::ip::tcp::socket m_sock;
 
   //================================================================================
   DeploykaTcpConnection(boost::asio::io_context& ctx)
     : m_sock(ctx)
+    //, context(ctx)
   {
     m_receiveBuffer.fill(0);
   }
@@ -145,30 +147,32 @@ public:
   }
 
   //================================================================================
-  void processMessages(std::vector<std::vector<Deployka::MemberInfo>>& messages) {
+  void processMessages(std::vector<std::vector<Deployka::MemberInfo>>& messages/*, std::shared_ptr<std::thread> pThread*/) {
     if (messages.empty()) {
-      std::cout << "[processMessage] ERROR messages are empty!\n";
+      std::cout << "[conn::processMessage] ERROR messages are empty!\n";
       return;
     }
     for (int i = 0; i < messages.size(); i++) {
-    if (messages[i].empty()) {
-      std::cout << "[processMessage] ERROR messages are empty!\n";
-      return;
-    }
-    Deployka::MemberInfo& mi = messages[i].front();
-    long long int val = 0;
-    memcpy(&val, mi.buffer.data(), mi.memberSize);
-    if (val >= Deployka::DMT_MessageTypeMax || val < Deployka::DMT_Null) {
-      std::cout << "[processMessage] ERROR message type is incorrect!\n";
-      return;
+      if (messages[i].empty()) {
+        std::cout << "[conn::processMessage] ERROR messages are empty!\n";
+        return;
+      }
+      Deployka::MemberInfo& mi = messages[i].front();
+      long long int val = 0;
+      memcpy(&val, mi.buffer.data(), mi.memberSize);
+      if (val >= Deployka::DMT_MessageTypeMax || val < Deployka::DMT_Null) {
+        std::cout << "[conn::processMessage] ERROR message type is incorrect!\n";
+        return;
+      }
+
+      switch (val) {
+      case Deployka::DMT_FileChunk:
+        ::processFileChunkMessage(messages[i]);
+        break;
+      }
     }
 
-    switch (val) {
-    case Deployka::DMT_FileChunk:
-      ::processFileChunkMessage(messages[i]);
-      break;
-    }
-    }
+    //boost::asio::post(this->context, [&pThread]() { if (pThread->joinable()) { pThread->join(); }});
   }
 
   //================================================================================
@@ -184,6 +188,10 @@ public:
     if (m_messageReceiver.done()) {
       std::vector<std::vector<Deployka::MemberInfo>> messages = m_messageReceiver.getReceivedMessages();
       //std::cout << "[conn::processMsg] msgSize: " << message.size() << '\n';
+
+      //context.post
+      //std::shared_ptr<std::thread> aThread = std::make_shared<std::thread>(std::bind(&DeploykaTcpConnection::processMessages, this, messages));
+      //boost::asio::post(context, );
       processMessages(messages);
     }
 
