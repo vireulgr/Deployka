@@ -117,7 +117,7 @@ namespace std {
 // там подождать ответа
 //
 
-std::string substVars(std::map<std::string, std::string> const & varsHash, std::string & inStr);
+std::string substVars(std::map<std::string, std::string> const & varsDict, std::string & inStr);
 
 void TEST_regex() {
   std::string simpleId = "blah blah $some_Identifier bpowjentjb";
@@ -147,14 +147,14 @@ R"str(<Dependency>$SrcRoot\VI\WebClient\Backend\WebServer\$Platform\$Config\WebS
     <Dependency>$($RemoteDiskLetter):\DL80\SecServerConsole\BinVI\$Config\$Platform\ConsoleVi.exe</Dependency>
     <Dependency>$SrcRoot\DL80\SecServerConsole\BinVI\$($Config)Vi\$Platform\ServerConsoleVi.exe</Dependency>)str";
 
-  std::map<std::string, std::string> varsHash = {
+  std::map<std::string, std::string> varsDict = {
     {"memmodel", "x86"},
     {"remotediskletter", "E"},
     {"srcroot", R"-(E:\Files\System32\Drivers\etc\hosts)-"},
     {"variant", "Debug"}
   };
 
-  std::string res = substVars(varsHash, example);
+  std::string res = substVars(varsDict, example);
 
   std::cout << "result: " << res;
 }
@@ -172,11 +172,11 @@ inline std::string & str_to_lower(std::string & in) {
 /*!
 * @brief substitudes the value of the variable where the name of the variable occurs with leading '$'
 *        and reparses text inside $(...) (to separate variable names with plain text $($arch)bit => 64bit)
-* @param[in] varsHash vars and their values
+* @param[in] varsDict vars and their values
 * @param[in] inStr string to substitude to
 * @return string with all found variables substituted
 */
-std::string substVars(std::map<std::string, std::string> const & varsHash, std::string & inStr) {
+std::string substVars(std::map<std::string, std::string> const & varsDict, std::string & inStr) {
 
   std::string result;
 
@@ -196,7 +196,7 @@ std::string substVars(std::map<std::string, std::string> const & varsHash, std::
     std::string tmp(item.first + 2, item.second - 1);
     str_to_lower(tmp);
 
-    std::string tmpRes = substVars(varsHash, tmp);
+    std::string tmpRes = substVars(varsDict, tmp);
 
     result.append(tmpRes);
   }
@@ -229,13 +229,13 @@ std::string substVars(std::map<std::string, std::string> const & varsHash, std::
     std::string tmp = item.str().substr(1);
     str_to_lower(tmp);
 
-    if (!varsHash.count(tmp)) {
+    if (!varsDict.count(tmp)) {
       std::cout << "[W] Cannot find item " << tmp << " in hash\n";
       result.append(item.first, item.second);
       continue;
     }
 
-    result.append(varsHash.at(tmp));
+    result.append(varsDict.at(tmp));
   }
 
   if (matchResults.ready()) {
@@ -253,7 +253,7 @@ std::string substVars(std::map<std::string, std::string> const & varsHash, std::
  * @param[in] configFile path to XML file
  * @return settings names and values
 */
-std::map<std::string, std::string> loadParamsFromXML(std::string const& configFile) {
+std::map<std::string, std::string> loadSettingsFromXML(std::string const& configFile) {
 
   std::map<std::string, std::string> result;
   pt::ptree aTree;
@@ -338,7 +338,7 @@ std::vector<Deployka::Artifact> loadTargetsFromXML(std::string const & configFil
   return result;
 }
 
-//================================================================================
+//====================================================================
 int main(int argc, char * argv[]) {
 
   std::ios::sync_with_stdio(false);
@@ -378,7 +378,8 @@ int main(int argc, char * argv[]) {
     )
     (
       "target,T",
-      po::value<std::vector<std::string>>(&requestedTargets)->default_value({"Frontend", "WebServer"}),
+      //po::value<std::vector<std::string>>(&requestedTargets)->default_value({"Frontend", "WebServer"}),
+      po::value<std::vector<std::string>>(&requestedTargets)->default_value({"NotebookWasya"}),
       "Which target from config to collected"
     )
   ;
@@ -434,24 +435,24 @@ int main(int argc, char * argv[]) {
 
   std::cout << "targets to process:\n" << toProcess << '\n';
 
-  std::map<std::string, std::string> varsHash = loadParamsFromXML(configFile);
-  varsHash["memmodel"] = std::to_string(vm["mem-model"].as<int>());
-  varsHash["srcroot"] = vm["src-root"].as<std::string>();
-  varsHash["variant"] = vm["variant"].as<std::string>();
+  std::map<std::string, std::string> varsDict = loadSettingsFromXML(configFile);
+  varsDict["memmodel"] = std::to_string(vm["mem-model"].as<int>());
+  varsDict["srcroot"] = vm["src-root"].as<std::string>();
+  varsDict["variant"] = vm["variant"].as<std::string>();
 
-  auto varsMapIt = varsHash.begin();
-  for (; varsMapIt != varsHash.end(); ++varsMapIt) {
-    varsMapIt->second = substVars(varsHash, varsMapIt->second);
+  auto varsMapIt = varsDict.begin();
+  for (; varsMapIt != varsDict.end(); ++varsMapIt) {
+    varsMapIt->second = substVars(varsDict, varsMapIt->second);
   }
 
   for (Deployka::Artifact& target : toProcess) {
 
-    target.pathToDir = substVars(varsHash, target.pathToDir);
+    target.pathToDir = substVars(varsDict, target.pathToDir);
 
     for (Deployka::ArtifactDependency& dependency : target.dependencies) {
-      dependency.path = substVars(varsHash, dependency.path);
+      dependency.path = substVars(varsDict, dependency.path);
       if (!dependency.pattern.empty()) {
-        dependency.pattern = substVars(varsHash, dependency.pattern);
+        dependency.pattern = substVars(varsDict, dependency.pattern);
       }
     }
   }
