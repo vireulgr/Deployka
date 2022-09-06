@@ -15,6 +15,12 @@ endforeach()
 
 message(NOTICE "Boost root is set to ${BOOST_ROOT}")
 
+# required boost libraries:
+#   asio
+#   program options
+#   property tree
+#   filesystem
+#
 # boost must be compiled with this flags
 # .\b2
 #     toolset=msvc143
@@ -30,7 +36,7 @@ include_directories(${Boost_INCLUDE_DIRS})
 link_directories(${Boost_LIBRARY_DIRS})
 
 if (WIN32)
-  add_compile_options(/FI"SDKDDKVer.h" /W4 /WX)
+  add_compile_options(/FI"SDKDDKVer.h" /W4 /WX /std:c++20)
 endif()
 
 add_subdirectory(CollectArtifacts)

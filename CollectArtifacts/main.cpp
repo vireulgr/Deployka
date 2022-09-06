@@ -8,8 +8,11 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
 
+#include <boost/filesystem.hpp>
+
 //#define _TESTS_
 
+namespace fs = boost::filesystem;
 namespace pt = boost::property_tree;
 namespace po = boost::program_options;
 
@@ -141,11 +144,11 @@ void TEST_regex() {
 
 void TEST_substVars() {
   std::string example = 
-R"str(<Dependency>$SrcRoot\VI\WebClient\Backend\WebServer\$Platform\$Config\WebServer.exe</Dependency>
-    <Dependency>$SrcRoot\LicServer\DlLicModuleShell\$Platform\$Config\LicModShell.exe</Dependency>
+R"str(<Dependency>$SrcRoot\VI\WebClient\Backend\WebServer\$MemModel\$Variant\WebServer.exe</Dependency>
+    <Dependency>$SrcRoot\LicServer\DlLicModuleShell\$MemModel\$Variant\LicModShell.exe</Dependency>
     <SourceDirectory>$($RemoteDiskLetter):\Configs</SourceDirectory>
-    <Dependency>$($RemoteDiskLetter):\DL80\SecServerConsole\BinVI\$Config\$Platform\ConsoleVi.exe</Dependency>
-    <Dependency>$SrcRoot\DL80\SecServerConsole\BinVI\$($Config)Vi\$Platform\ServerConsoleVi.exe</Dependency>)str";
+    <Dependency>$($RemoteDiskLetter):\DL80\SecServerConsole\BinVI\$Variant\$MemModel\ConsoleVi.exe</Dependency>
+    <Dependency>$SrcRoot\DL80\SecServerConsole\BinVI\$($Variant)Vi\$MemModel\ServerConsoleVi.exe</Dependency>)str";
 
   std::map<std::string, std::string> varsDict = {
     {"memmodel", "x86"},
@@ -230,7 +233,7 @@ std::string substVars(std::map<std::string, std::string> const & varsDict, std::
     str_to_lower(tmp);
 
     if (!varsDict.count(tmp)) {
-      std::cout << "[W] Cannot find item " << tmp << " in hash\n";
+      std::cout << "[W] Cannot find item " << tmp << " in dictionary!\n";
       result.append(item.first, item.second);
       continue;
     }
@@ -457,7 +460,32 @@ int main(int argc, char * argv[]) {
     }
   }
 
-  std::cout << "after subst vars: \n" << toProcess << '\n';
+  for (auto & item : toProcess) {
+    std::cout << "Checking path " << item.pathToDir << " ... ";
+    if (!fs::exists(item.pathToDir)) {
+      std::cout << "[W] Path " << item.pathToDir << " is not exists!\n";
+    }
+    else {
+      std::cout << "OK\n";
+    }
+    for (auto & dep : item.dependencies) {
+      switch (dep.type) {
+      case Deployka::DDT_pattern:
+        break;
+      case Deployka::DDT_directory:
+      case Deployka::DDT_file:
+      default:
+        std::cout << "    Checking path " << dep.path << " ... ";
+        if (!fs::exists(dep.path)) {
+          std::cout << "[W] Path " << dep.path << " is not exists!\n";
+        }
+        else {
+          std::cout << "OK\n";
+        }
+        break;
+      }
+    }
+  }
 
   } // /TRY
   catch(std::exception& e) {
