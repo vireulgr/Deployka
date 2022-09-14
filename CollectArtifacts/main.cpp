@@ -17,6 +17,13 @@ namespace pt = boost::property_tree;
 namespace po = boost::program_options;
 
 namespace Deployka {
+enum CollectMethod : unsigned int {
+  DCM_none,
+  DCM_replaceIfNewer,
+  DCM_cleanup,
+  DCM_MAX_VALUE
+};
+
 enum DependencyType : unsigned int {
   DDT_none,
   DDT_file,
@@ -33,7 +40,7 @@ struct ArtifactDependency {
 
 struct Artifact {
   std::string name; ///< unique name
-  std::string pathToDir; ///< where to store collected artifact
+  std::string storeDir; ///< where to store collected artifact
   std::vector<ArtifactDependency> dependencies; ///< files that must be deployed along with target
 };
 }
@@ -72,7 +79,7 @@ namespace std {
   }
 
   std::ostream& operator << (std::ostream& os, Deployka::Artifact const& aTarget) {
-    os << aTarget.name << " (" << aTarget.pathToDir << ")\n";
+    os << aTarget.name << " (" << aTarget.storeDir << ")\n";
     os << "\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n";
     os << aTarget.dependencies;
     os << "\n^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n";
@@ -120,7 +127,93 @@ namespace std {
 // там подождать ответа
 //
 
+
 std::string substVars(std::map<std::string, std::string> const & varsDict, std::string & inStr);
+
+
+
+void replaceIfNewer(fs::path from, fs::path to) {
+  time_t lwtFrom = fs::last_write_time(from);
+  time_t lwtTo = fs::last_write_time(to);
+  if (lwtFrom > lwtTo) {
+    fs::remove(to);
+    fs::copy(from, to);
+  }
+}
+
+void processArtifacts(std::vector<Deployka::Artifact> & anArtifacts, Deployka::CollectMethod cm) {
+  for (auto& item : anArtifacts) {
+
+    if (!fs::exists(item.storeDir) || !fs::is_directory(item.storeDir)) {
+      std::cout << "[W] Store directory " << item.storeDir << " is not exists!\n";
+      fs::create_directories(item.storeDir);
+    }
+
+    for (auto & dep : item.dependencies) {
+      if (!fs::exists(dep.path)) {
+        std::cout << "[E] Source path is not exists (" << dep.path << ")\n";
+        continue;
+      }
+      switch (dep.type) {
+      case Deployka::DDT_pattern: {
+
+        fs::directory_iterator dirIt = fs::directory_iterator(dep.path);
+        fs::directory_iterator endDirIt = fs::directory_iterator();
+        for (; dirIt != endDirIt; ++dirIt) {
+          std::string fileName = dirIt->path().filename().string();
+
+          std::regex aRegex(dep.pattern);
+          std::smatch results;
+          bool isMatch = std::regex_match(fileName, results, aRegex);
+          if (isMatch) {
+            fs::path result = fs::path(item.storeDir) / dirIt->path().filename();
+            if (fs::exists(result)) {
+              if (cm == Deployka::DCM_replaceIfNewer) {
+                replaceIfNewer(dirIt->path(), result);
+              }
+              else {
+                std::cout << "[W] Already exists: " << result << "\n";
+                continue;
+              }
+            }
+            fs::copy_file(dirIt->path(), result);
+          }
+        }
+      }
+      break;
+      case Deployka::DDT_directory: {
+        fs::path result = fs::path(item.storeDir) / fs::path(dep.path).filename();
+        if (fs::exists(result)) {
+          if (cm == Deployka::DCM_replaceIfNewer) {
+            replaceIfNewer(dep.path, result);
+          }
+          else {
+            std::cout << "[W] Already exists: " << result << "\n";
+            break;
+          }
+        }
+        fs::copy(dep.path, result);
+      }
+      break;
+      case Deployka::DDT_file:
+      default: {
+        fs::path result = fs::path(item.storeDir) / fs::path(dep.path).filename();
+        if (fs::exists(result)) {
+          if (cm == Deployka::DCM_replaceIfNewer) {
+            replaceIfNewer(dep.path, result);
+          }
+          else {
+            std::cout << "[W] Already exists: " << result << "\n";
+            break;
+          }
+        }
+        fs::copy_file(dep.path, result);
+      }
+      break;
+      }
+    }
+  }
+}
 
 void TEST_regex() {
   std::string simpleId = "blah blah $some_Identifier bpowjentjb";
@@ -140,6 +233,42 @@ void TEST_regex() {
   matchRes = std::regex_search(p11dId, matchResults, re2);
 
   std::cout << "match res (" << matchRes << "): " << matchResults[0].str() << '\n';
+}
+
+void TEST_filesystemRecursiveDirIterator() {
+  fs::path rootDirPath = R"-(E:\test\file_set)-";
+
+  if (!fs::exists(rootDirPath)) {
+    throw std::logic_error("Root directory not exists!");
+  }
+
+  fs::recursive_directory_iterator rdIt = fs::recursive_directory_iterator(rootDirPath);
+  fs::recursive_directory_iterator rdItEnd = fs::recursive_directory_iterator();
+
+  for (; rdIt != rdItEnd; ++rdIt) {
+    std::cout << (fs::is_directory(rdIt->status()) ? "dir:  " : "file: ") << rdIt->path();
+    if (fs::is_regular_file(rdIt->status())) {
+
+      char charBuf[120] = {};
+      time_t lwt = fs::last_write_time(rdIt->path());
+      struct tm tms = {};
+      auto err = localtime_s(&tms, &lwt);
+      if (err) {
+        throw std::logic_error("Cannot convert localtime");
+      }
+      strftime(charBuf, 120, "%d.%m.%Y %H:%M", &tms);
+      //std::transform(charBuf, charBuf + 120, charBuf, [](char c) { if (c == '\n' || c == '\r') { return ' '; }; return c; });
+
+      std::cout << "; last write time: " << charBuf;
+
+      fs::path relPath = fs::relative(rdIt->path(), rootDirPath);
+
+      relPath.parent_path();
+
+
+    }
+    std::cout << '\n';
+  }
 }
 
 void TEST_substVars() {
@@ -292,7 +421,7 @@ std::vector<Deployka::Artifact> loadTargetsFromXML(std::string const & configFil
     Deployka::Artifact aTarget;
 
     aTarget.name = targetNode.second.get<std::string>("Name");
-    aTarget.pathToDir = targetNode.second.get<std::string>("PathToDirectory");
+    aTarget.storeDir = targetNode.second.get<std::string>("PathToDirectory");
     for (pt::ptree::value_type& dependencyNode : targetNode.second.get_child("Dependencies")) {
 
       Deployka::ArtifactDependency aDependency;
@@ -349,8 +478,14 @@ int main(int argc, char * argv[]) {
 #ifdef _TESTS_
   argc;
   argv;
-  TEST_regex();
-  //TEST_substVars();
+  try {
+    //TEST_regex();
+    //TEST_substVars();
+    TEST_filesystemRecursiveDirIterator();
+  }
+  catch (std::logic_error& e) {
+    std::cerr << e.what();
+  }
 #else
   std::string configFile;
   std::vector<std::string> requestedTargets;
@@ -382,7 +517,7 @@ int main(int argc, char * argv[]) {
     (
       "target,T",
       //po::value<std::vector<std::string>>(&requestedTargets)->default_value({"Frontend", "WebServer"}),
-      po::value<std::vector<std::string>>(&requestedTargets)->default_value({"NotebookWasya"}),
+      po::value<std::vector<std::string>>(&requestedTargets)->default_value({"NotebookWasya", "SubfolderTarget", "PatternTarget"}),
       "Which target from config to collected"
     )
   ;
@@ -436,7 +571,7 @@ int main(int argc, char * argv[]) {
     toProcess.push_back(*foundIt);
   }
 
-  std::cout << "targets to process:\n" << toProcess << '\n';
+  //std::cout << "targets to process:\n" << toProcess << '\n';
 
   std::map<std::string, std::string> varsDict = loadSettingsFromXML(configFile);
   varsDict["memmodel"] = std::to_string(vm["mem-model"].as<int>());
@@ -450,7 +585,7 @@ int main(int argc, char * argv[]) {
 
   for (Deployka::Artifact& target : toProcess) {
 
-    target.pathToDir = substVars(varsDict, target.pathToDir);
+    target.storeDir = substVars(varsDict, target.storeDir);
 
     for (Deployka::ArtifactDependency& dependency : target.dependencies) {
       dependency.path = substVars(varsDict, dependency.path);
@@ -460,32 +595,7 @@ int main(int argc, char * argv[]) {
     }
   }
 
-  for (auto & item : toProcess) {
-    std::cout << "Checking path " << item.pathToDir << " ... ";
-    if (!fs::exists(item.pathToDir)) {
-      std::cout << "[W] Path " << item.pathToDir << " is not exists!\n";
-    }
-    else {
-      std::cout << "OK\n";
-    }
-    for (auto & dep : item.dependencies) {
-      switch (dep.type) {
-      case Deployka::DDT_pattern:
-        break;
-      case Deployka::DDT_directory:
-      case Deployka::DDT_file:
-      default:
-        std::cout << "    Checking path " << dep.path << " ... ";
-        if (!fs::exists(dep.path)) {
-          std::cout << "[W] Path " << dep.path << " is not exists!\n";
-        }
-        else {
-          std::cout << "OK\n";
-        }
-        break;
-      }
-    }
-  }
+  processArtifacts(toProcess);
 
   } // /TRY
   catch(std::exception& e) {
