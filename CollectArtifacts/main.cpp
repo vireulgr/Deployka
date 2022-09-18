@@ -2,6 +2,7 @@
 #include <string>
 #include <exception>
 #include <regex>
+#define BOOST_FILESYSTEM_NO_DEPRECATED
 
 #include <boost/program_options.hpp>
 
@@ -10,7 +11,7 @@
 
 #include <boost/filesystem.hpp>
 
-//#define _TESTS_
+#define _TESTS_
 
 namespace fs = boost::filesystem;
 namespace pt = boost::property_tree;
@@ -19,6 +20,8 @@ namespace po = boost::program_options;
 namespace Deployka {
 enum CollectMethod : unsigned int {
   DCM_none,
+  DCM_noCopyIfExists,
+  DCM_replaceAnyway,
   DCM_replaceIfNewer,
   DCM_cleanup,
   DCM_MAX_VALUE
@@ -128,19 +131,121 @@ namespace std {
 //
 
 
+
+
 std::string substVars(std::map<std::string, std::string> const & varsDict, std::string & inStr);
 
 
-
+/*
+ * @brief If source file is newer than (existing) destination file,
+ *        destination file will be deleted and source file will be copied
+ *        to destination location
+ * @param[in] from Full path to source file. If not exists, function will throw filesystem_error.
+ * @param[in] to Full path to destination file. If not exists, function will throw filesystem_error.
+*/
 void replaceIfNewer(fs::path from, fs::path to) {
-  time_t lwtFrom = fs::last_write_time(from);
-  time_t lwtTo = fs::last_write_time(to);
+  time_t lwtFrom = fs::last_write_time(from); /// may throw filesystem_error if to is not exists
+  time_t lwtTo = fs::last_write_time(to); /// may throw filesystem_error if to is not exists
   if (lwtFrom > lwtTo) {
-    fs::remove(to);
-    fs::copy(from, to);
+    fs::remove(to); /// if 'to' is not exists, remove(to) simply returns false
+    fs::copy_file(from, to);
   }
 }
 
+struct MyCopyator {
+  Deployka::CollectMethod method;
+  fs::path destDirectory;
+  fs::path srcRootDirectory;
+
+  /*!
+  * @brief Simply creates subdirectory in target directory 
+  * @param[in] path Path to source directory
+  */
+  bool processDirectory(fs::path const & path) {
+    fs::path relativePath = fs::relative(path, this->srcRootDirectory);
+    fs::path destDir = this->destDirectory / relativePath;
+    fs::create_directory(destDir);
+    return true;
+  }
+
+  /*!
+   * @brief Performs action (corresponding to this->method) on every source file
+   * @param[in] path Path to source file
+   * @return 
+  */
+  bool processFile(fs::path const & path) {
+    fs::path relativePath = fs::relative(path, this->srcRootDirectory);
+    fs::path destPath = this->destDirectory / relativePath;
+    bool result = false;
+    switch (this->method) {
+    case Deployka::DCM_replaceIfNewer:
+      if (fs::exists(destPath)) {
+        replaceIfNewer(path, destPath);
+      }
+      else {
+        fs::copy_file(path, destPath);
+      }
+      result = true;
+      break;
+    case Deployka::DCM_cleanup:
+      fs::remove(destPath);
+      result = true;
+      break;
+    case Deployka::DCM_replaceAnyway:
+      if (fs::exists(destPath)) {
+        fs::remove(destPath);
+      }
+      result = fs::copy_file(path, destPath);
+    default:
+      if (!fs::exists(destPath)) {
+        result = fs::copy_file(path, destPath);
+      }
+      break;
+    }
+    return result;
+  }
+};
+
+bool copyDirectoryRecursively(fs::path root, MyCopyator my) {
+
+  bool doContinue = true;
+  std::vector<fs::path> directories;
+
+  fs::directory_iterator dirIt = fs::directory_iterator(root);
+  fs::directory_iterator endDirIt2 = fs::directory_iterator();
+  for (; dirIt != endDirIt2 && doContinue; ++dirIt) {
+
+    if (fs::is_directory(dirIt->status())) {
+      doContinue = my.processDirectory(dirIt->path());
+      directories.push_back(dirIt->path());
+    }
+    else if (fs::is_regular_file(dirIt->status())) {
+      doContinue = my.processFile(dirIt->path());
+    }
+  }
+
+  for (auto vecIt = directories.begin(); vecIt != directories.end() && doContinue; ++vecIt) {
+    doContinue = copyDirectoryRecursively(*vecIt, my);
+  }
+
+  return doContinue;
+}
+
+void copyDirectoryRecursivelyWrapper(fs::path fromDir, fs::path toDir, Deployka::CollectMethod cm) {
+
+  MyCopyator mc;
+  mc.destDirectory = toDir;
+  mc.srcRootDirectory = fromDir;
+  mc.method = cm;
+
+  copyDirectoryRecursively(fromDir, mc);
+}
+
+/*
+ * @brief Process artifacts vector
+ * @param[in] anArtifacts Vector of artifacts to process
+ * @param[in] cm Collect method
+*/
 void processArtifacts(std::vector<Deployka::Artifact> & anArtifacts, Deployka::CollectMethod cm) {
   for (auto& item : anArtifacts) {
 
@@ -215,6 +320,7 @@ void processArtifacts(std::vector<Deployka::Artifact> & anArtifacts, Deployka::C
   }
 }
 
+#ifdef _TESTS_
 void TEST_regex() {
   std::string simpleId = "blah blah $some_Identifier bpowjentjb";
 
@@ -224,7 +330,6 @@ void TEST_regex() {
   bool matchRes = std::regex_search(simpleId, matchResults, re1);
 
   std::cout << "match res (" << matchRes << "): " << matchResults[0].str() << '\n';
-
 
   std::regex re2{ R"-(\$\([^)]*\))-" };
 
@@ -261,14 +366,24 @@ void TEST_filesystemRecursiveDirIterator() {
 
       std::cout << "; last write time: " << charBuf;
 
-      fs::path relPath = fs::relative(rdIt->path(), rootDirPath);
+      //       drivers\etc\hosts      c:\windows\system32\drivers\etc\hosts c:\windows\system32
+      fs::path relPath = fs::relative(rdIt->path(),                         rootDirPath);
 
+      std::cout << "; rel path: " <<  relPath;
       relPath.parent_path();
-
-
     }
     std::cout << '\n';
   }
+}
+
+void TEST_copyDirRecursively() {
+  fs::path srcRoot = R"-(E:\prog\web\web-chat\trunk)-";
+  fs::path dest = R"-(E:\test\VMShared\web_chat)-";
+
+  copyDirectoryRecursivelyWrapper(srcRoot, dest, Deployka::DCM_cleanup);
+
+  copyDirectoryRecursivelyWrapper(srcRoot, dest, Deployka::DCM_replaceIfNewer);
+
 }
 
 void TEST_substVars() {
@@ -290,6 +405,7 @@ R"str(<Dependency>$SrcRoot\VI\WebClient\Backend\WebServer\$MemModel\$Variant\Web
 
   std::cout << "result: " << res;
 }
+#endif
 
 /*!
  * @brief apply tolower to each char in string
@@ -481,9 +597,13 @@ int main(int argc, char * argv[]) {
   try {
     //TEST_regex();
     //TEST_substVars();
-    TEST_filesystemRecursiveDirIterator();
+    //TEST_filesystemRecursiveDirIterator();
+    TEST_copyDirRecursively();
   }
-  catch (std::logic_error& e) {
+  catch (fs::filesystem_error& fserr) {
+    std::cerr << fserr.what();
+  }
+  catch (std::runtime_error& e) {
     std::cerr << e.what();
   }
 #else
@@ -595,7 +715,7 @@ int main(int argc, char * argv[]) {
     }
   }
 
-  processArtifacts(toProcess);
+  processArtifacts(toProcess, Deployka::DCM_replaceIfNewer);
 
   } // /TRY
   catch(std::exception& e) {
