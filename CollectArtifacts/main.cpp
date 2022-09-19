@@ -1,17 +1,17 @@
+#include "UtilityLib.h"
+
 #include <iostream>
 #include <string>
 #include <exception>
 #include <regex>
+
 #define BOOST_FILESYSTEM_NO_DEPRECATED
-
 #include <boost/program_options.hpp>
-
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
-
 #include <boost/filesystem.hpp>
 
-#define _TESTS_
+//#define _TESTS_
 
 namespace fs = boost::filesystem;
 namespace pt = boost::property_tree;
@@ -133,7 +133,7 @@ namespace std {
 
 
 
-std::string substVars(std::map<std::string, std::string> const & varsDict, std::string & inStr);
+//std::string substVars(std::map<std::string, std::string> const & varsDict, std::string & inStr);
 
 
 /*
@@ -408,119 +408,6 @@ R"str(<Dependency>$SrcRoot\VI\WebClient\Backend\WebServer\$MemModel\$Variant\Web
 #endif
 
 /*!
- * @brief apply tolower to each char in string
- * @param [in] in string to lowercase
- * @return same string but lowercased
-*/
-inline std::string & str_to_lower(std::string & in) {
-  std::transform(in.begin(), in.end(), in.begin(), [](char c) { return (char)std::tolower(c); });
-  return in;
-}
-
-/*!
-* @brief substitudes the value of the variable where the name of the variable occurs with leading '$'
-*        and reparses text inside $(...) (to separate variable names with plain text $($arch)bit => 64bit)
-* @param[in] varsDict vars and their values
-* @param[in] inStr string to substitude to
-* @return string with all found variables substituted
-*/
-std::string substVars(std::map<std::string, std::string> const & varsDict, std::string & inStr) {
-
-  std::string result;
-
-  std::regex re{ R"-(\$\([^)]*\))-" };
-
-  std::smatch matchResults;
-
-  auto reItEnd = std::sregex_iterator();
-
-  auto reIt = std::sregex_iterator(inStr.begin(), inStr.end(), re);
-
-  for (; reIt != reItEnd; ++reIt) {
-    matchResults = *reIt;
-    std::ssub_match item = matchResults[0];
-
-    result.append(matchResults.prefix().first, matchResults.prefix().second);
-    std::string tmp(item.first + 2, item.second - 1);
-    str_to_lower(tmp);
-
-    std::string tmpRes = substVars(varsDict, tmp);
-
-    result.append(tmpRes);
-  }
-
-  if (matchResults.ready()) {
-    std::ssub_match const & suffix = matchResults.suffix();
-
-    if (suffix.length() > 0) {
-      result.append(suffix.first, suffix.second);
-      inStr = std::move(result);
-      result.clear();
-      result.reserve(inStr.length());
-    }
-    std::smatch tmp;
-    matchResults.swap(tmp);
-  }
-
-  //foreach (std::ssub_match match in matchResults) {
-  //	Console.WriteLine(match.str());
-  //}
-
-  std::regex re2{ R"-(\$\w[0-9a-zA-Z]*)-" };
-
-  reIt = std::sregex_iterator(inStr.begin(), inStr.end(), re2);
-
-  for (; reIt != reItEnd; ++reIt) {
-    matchResults = *reIt;
-    std::ssub_match const & item = matchResults[0];
-    result.append(matchResults.prefix().first, matchResults.prefix().second);
-    std::string tmp = item.str().substr(1);
-    str_to_lower(tmp);
-
-    if (!varsDict.count(tmp)) {
-      std::cout << "[W] Cannot find item " << tmp << " in dictionary!\n";
-      result.append(item.first, item.second);
-      continue;
-    }
-
-    result.append(varsDict.at(tmp));
-  }
-
-  if (matchResults.ready()) {
-    result.append(matchResults.suffix().first, matchResults.suffix().second);
-  }
-  else if (result.empty()) {
-    return inStr;
-  }
-
-  return result;
-}
-
-/*!
- * @brief read settings section from XML file
- * @param[in] configFile path to XML file
- * @return settings names and values
-*/
-std::map<std::string, std::string> loadSettingsFromXML(std::string const& configFile) {
-
-  std::map<std::string, std::string> result;
-  pt::ptree aTree;
-
-  pt::read_xml(configFile, aTree);
-
-  for (pt::ptree::value_type & targetNode : aTree.get_child("Root.Settings")) {
-
-    std::string name = targetNode.second.get<std::string>("Name");
-    str_to_lower(name);
-    std::string value = targetNode.second.get<std::string>("Value");
-
-    result.insert({ name, value });
-  }
-
-  return result;
-}
-
-/*!
  * @brief fill targets info from XML
  * @param[in] configFile path to XML file
  * @return vector of targets filled from XML file
@@ -611,6 +498,7 @@ int main(int argc, char * argv[]) {
   std::vector<std::string> requestedTargets;
 
   try {
+  // setup command line options
   po::options_description desc("Collect Artifacts command line arguments");
   desc.add_options()
     ("help", "print help message")
@@ -642,6 +530,7 @@ int main(int argc, char * argv[]) {
     )
   ;
 
+  // process command line options
   po::positional_options_description posOpts;
   posOpts.add("target", -1);
 
@@ -679,6 +568,7 @@ int main(int argc, char * argv[]) {
     std::cout << "targets:     " << vm["target"].as<std::vector<std::string>>() << std::endl;
   }
 
+  // load targets from XML
   std::vector<Deployka::Artifact> targets = loadTargetsFromXML(configFile);
   std::vector<Deployka::Artifact> toProcess;
 
@@ -691,31 +581,34 @@ int main(int argc, char * argv[]) {
     toProcess.push_back(*foundIt);
   }
 
-  //std::cout << "targets to process:\n" << toProcess << '\n';
-
-  std::map<std::string, std::string> varsDict = loadSettingsFromXML(configFile);
+  // load settings from XML
+  std::map<std::string, std::string> varsDict = Deployka::loadSettingsFromXML(configFile);
   varsDict["memmodel"] = std::to_string(vm["mem-model"].as<int>());
   varsDict["srcroot"] = vm["src-root"].as<std::string>();
   varsDict["variant"] = vm["variant"].as<std::string>();
 
+  // substitute variables in targets from XML
   auto varsMapIt = varsDict.begin();
   for (; varsMapIt != varsDict.end(); ++varsMapIt) {
-    varsMapIt->second = substVars(varsDict, varsMapIt->second);
+    varsMapIt->second = Deployka::substVars(varsDict, varsMapIt->second);
   }
 
   for (Deployka::Artifact& target : toProcess) {
 
-    target.storeDir = substVars(varsDict, target.storeDir);
+    target.storeDir = Deployka::substVars(varsDict, target.storeDir);
 
     for (Deployka::ArtifactDependency& dependency : target.dependencies) {
-      dependency.path = substVars(varsDict, dependency.path);
+      dependency.path = Deployka::substVars(varsDict, dependency.path);
       if (!dependency.pattern.empty()) {
-        dependency.pattern = substVars(varsDict, dependency.pattern);
+        dependency.pattern = Deployka::substVars(varsDict, dependency.pattern);
       }
     }
   }
 
+  // process artifacts
   processArtifacts(toProcess, Deployka::DCM_replaceIfNewer);
+
+  std::cout << "Done!" << std::endl;
 
   } // /TRY
   catch(std::exception& e) {
