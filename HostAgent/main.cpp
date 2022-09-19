@@ -329,8 +329,8 @@ int main(int argc, char* argv[]) {
       }
       if (c == 'h') {
         char const* const fileNames[] = {
-          "E:\\prog\\cpp\\Deployka\\build\\TargetAgent\\Debug\\TargetAgent.pdb",
-          "I:\\prog_n_gamedev\\VCS\\Deployka\\build\\TargetAgent\\Debug\\TargetAgent.pdb"
+          R"-(E:\prog\cpp\Deployka\build\TargetAgent\Debug\TargetAgent.pdb)-",
+          R"-(I:\prog_n_gamedev\VCS\Deployka\build\TargetAgent\Debug\TargetAgent.pdb)-"
         };
         char const* existingFile = nullptr;
 #if defined(_MSC_VER) && defined(USE_WIN_NATIVE_FILE_IO)
