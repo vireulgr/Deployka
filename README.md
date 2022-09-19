@@ -11,7 +11,7 @@ Intended to work on build machine (host machine).
 TBD
 
 ## HostAgent
-TBD
+Transfers collected binaries to target machine via TCP
 
 ## TargetAgent
-TBD
+Must be started on target machine. Listens for host agents to connect and transfer files.
