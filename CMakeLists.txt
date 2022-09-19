@@ -39,9 +39,10 @@ if (WIN32)
   add_compile_options(/FI"SDKDDKVer.h" /W4 /WX /std:c++20)
 endif()
 
+add_subdirectory(UtilityLib)
+add_subdirectory(NetworkLib)
 add_subdirectory(CollectArtifacts)
 add_subdirectory(DeployArtifacts)
-add_subdirectory(NetworkLib)
 add_subdirectory(HostAgent)
 add_subdirectory(TargetAgent)
 
