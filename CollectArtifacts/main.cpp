@@ -90,7 +90,6 @@ namespace std {
   }
 }
 
-
 // Опции:
 // 1) путь к папке с конфигом
 // (режим 1)
@@ -129,12 +128,6 @@ namespace std {
 // отправить этот список на целевую ВМ
 // там подождать ответа
 //
-
-
-
-
-//std::string substVars(std::map<std::string, std::string> const & varsDict, std::string & inStr);
-
 
 /*
  * @brief If source file is newer than (existing) destination file,
@@ -430,7 +423,7 @@ std::vector<Deployka::Artifact> loadTargetsFromXML(std::string const & configFil
       Deployka::ArtifactDependency aDependency;
       aDependency.type = Deployka::DDT_none;
 
-      if (dependencyNode.second.count("<xmlattr>")) {
+      if (dependencyNode.second.count("<xmlattr>")) { // <Dependency type="pattern">...</Dependency>
 
         pt::ptree::value_type & xmlAttrVal = dependencyNode.second.get_child("<xmlattr>").front();
 
