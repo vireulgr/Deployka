@@ -22,7 +22,17 @@ enum ObjectType : unsigned long long int {
   TOT_max
 };
 
-ObjectType objectTypeStringToEnum(std::string s) {
+std::string objectTypeEnumToString(ObjectType ot) {
+
+  switch (ot) {
+  case TOT_service: return "service";
+  case TOT_process: return "process";
+  case TOT_file: return "file";
+  default: return "unknown";
+  }
+}
+
+ObjectType objectTypeStringToEnum(std::string s) { // cannot change string to string_view due to std::transform on this string
   std::transform(s.begin(), s.end(), s.begin(), [](char c) {return static_cast<char>(tolower(c));});
   if (s == "service") {
     return TOT_service;
@@ -37,25 +47,38 @@ ObjectType objectTypeStringToEnum(std::string s) {
   return TOT_unknown;
 }
 
+//<Name>SecServer</Name>
+//<FileName>SecServer.exe</FileName>
+//<Dependencies></Dependencies>
+//<TargetDirectory>C:\DLVI\VI</TargetDirectory>
+//<SourceDirectory>C:\temp\Core</SourceDirectory>
+//<Type>Service</Type>
+//<ReplaceMethod>
+//  <Type>Service</Type>
+//  <ProcessName>SecServer</ProcessName>
+//  <ServiceName>*Dallas Lock*</ServiceName>
+//</ReplaceMethod>
+
+/*!
+ * @brief Represents deployable target
+*/
 struct Target {
-  //<Name>SecServer</Name>
   std::string id;
-  //<FileName>SecServer.exe</FileName>
   std::string fileName;
-  //<Dependencies></Dependencies>
-  std::vector<std::string> dependencies; // id of dependent Targets
-  //<TargetDirectory>C:\DLVI\VI</TargetDirectory>
+  std::vector<std::string> dependencies; // ids of dependent Targets
   std::string targetDirectory;
-  //<SourceDirectory>C:\temp\Core</SourceDirectory>
   std::string sourceDirectory;
-  //<Type>Service</Type>
-  //<ReplaceMethod>
   ObjectType objectType;
-  //  <Type>Service</Type>
-  //  <ProcessName>SecServer</ProcessName>
-  //  <ServiceName>*Dallas Lock*</ServiceName>
-  //</ReplaceMethod>
 };
+}
+
+std::ostream& operator << (std::ostream& os, Deployka::Target& t) {
+    os << "Target " << t.id << '\n';
+    os << "type: " << Deployka::objectTypeEnumToString(t.objectType) << '\n';
+    os << "file name:  " << t.fileName << '\n';
+    os << "target dir: " << t.targetDirectory << '\n';
+    os << "source dir: " << t.sourceDirectory << '\n';
+    return os;
 }
 
 namespace std {
@@ -72,7 +95,7 @@ namespace std {
 
     return os;
   }
-//
+
   std::ostream& operator << (std::ostream& os, Deployka::Target const& aTarget) {
     os << aTarget.id << "; src: " << aTarget.sourceDirectory << "; dest: " << aTarget.targetDirectory;
     os << "\nvvvvvvvvvvvvvvvvvvvvvvvvvvvvv\n";
@@ -81,52 +104,52 @@ namespace std {
     return os;
   }
 }
-//
+
 /*!
  * @brief Loads targets from XML config
  * @param configFile Path to config
  * @return vector of DeployTargets
 */
 std::vector<Deployka::Target> loadTargetsFromXML(std::string configFile) {
-  pt::ptree aTree;//
-//
-  std::vector<Deployka::Target> targetsVector;//
-//
-  pt::read_xml(configFile, aTree);//
-//
-  for (pt::ptree::value_type & targetNode : aTree.get_child("Root.Targets")) {//
-//
-    Deployka::Target aTarget;//
-//
-    aTarget.id = targetNode.second.get<std::string>("Name");//
-    aTarget.fileName = targetNode.second.get<std::string>("FileName");//
-    aTarget.objectType = Deployka::objectTypeStringToEnum(targetNode.second.get<std::string>("Type"));//
-    aTarget.sourceDirectory = targetNode.second.get<std::string>("SourceDirectory");//
-    aTarget.targetDirectory = targetNode.second.get<std::string>("TargetDirectory");//
-//
+  pt::ptree aTree;
+
+  std::vector<Deployka::Target> targetsVector;
+
+  pt::read_xml(configFile, aTree);
+
+  for (pt::ptree::value_type & targetNode : aTree.get_child("Root.Targets")) {
+
+    Deployka::Target aTarget;
+
+    aTarget.id = targetNode.second.get<std::string>("Name");
+    aTarget.fileName = targetNode.second.get<std::string>("FileName");
+    aTarget.objectType = Deployka::objectTypeStringToEnum(targetNode.second.get<std::string>("Type"));
+    aTarget.sourceDirectory = targetNode.second.get<std::string>("SourceDirectory");
+    aTarget.targetDirectory = targetNode.second.get<std::string>("TargetDirectory");
+
     for (pt::ptree::value_type& dependencyNode : targetNode.second.get_child("Dependencies")) {
-//
+
       if (dependencyNode.second.count("<xmlattr>")) {
         std::cout
           << "rd: " << dependencyNode.second.count("RootDir") << "; "
           << "pat: " << dependencyNode.second.count("Pattern") << ";\n";
-//
+
         pt::ptree::value_type & xmlAttrVal = dependencyNode.second.get_child("<xmlattr>").front();
-        //std::cout << xmlAttrVal.first << " => " << xmlAttrVal.second.data() << '\n';
+        std::cout << xmlAttrVal.first << " => " << xmlAttrVal.second.data() << '\n';
       }
-//
+
       if (dependencyNode.first == "Dependency") {
         aTarget.dependencies.emplace_back(dependencyNode.second.data());
       }
     }
-//
+
     //std::cout << aTarget << '\n';
     targetsVector.emplace_back(std::move(aTarget));
   }
-//
+
   return targetsVector;
 }
-//
+
 #ifdef _TESTS_
 void TEST_readXmlSettings2() {
   std::string fileName = "./BinariesUpdate.xml";
@@ -160,7 +183,7 @@ int main(int argc, char * argv[]) {
     ("config,c", po::value<std::string>(&configFile)->default_value("./BinariesUpdate.xml"), "path to artifacts description file")
     (
       "target,T",
-      po::value<std::vector<std::string>>(&requestedTargets)->default_value({"NotebookWasya", "SubfolderTarget", "PatternTarget"}),
+      po::value<std::vector<std::string>>(&requestedTargets)->default_value({"ViCore"}),
       "Which target from config to collected"
     )
   ;
@@ -182,43 +205,44 @@ int main(int argc, char * argv[]) {
     return 0;
   }
 
-  if (vm.count("config")) {
-    std::cout << "config path: " << vm["config"].as<std::string>() << std::endl;
-  }
-//
+  //if (vm.count("config")) {
+  //  std::cout << "config path: " << vm["config"].as<std::string>() << std::endl;
+  //}
+
   if (vm.count("target")) {
     std::vector<std::string> vec = vm["target"].as<std::vector<std::string>>();
   }
-//
+
   // load targets from XML
   std::vector<Deployka::Target> targets = loadTargetsFromXML(configFile);
   std::vector<Deployka::Target> toProcess;
-//
+
   for (std::string const& requested : requestedTargets) {
     auto foundIt = std::find_if(targets.begin(), targets.end(), [&requested](Deployka::Target artifact) { return artifact.id == requested; });
     if (foundIt == targets.end()) {
       std::cout << "[W] Requested target " << requested << " not found in XML\n";
       continue;
-    }//
+    }
     toProcess.push_back(*foundIt);
-  }//
-//
+  }
+
   // load settings from XML
   std::multimap<std::string, std::string> varsDict = Deployka::loadSettingsFromXML2(configFile);
-  varsDict.insert({ "memmodel" , std::to_string(vm["mem-model"].as<int>()) });
-  varsDict.insert({ "srcroot" , vm["src-root"].as<std::string>() });
-  varsDict.insert({ "variant" , vm["variant"].as<std::string>() });
-//
+
   // substitute variables in targets from XML
   auto varsMapIt = varsDict.begin();
   for (; varsMapIt != varsDict.end(); ++varsMapIt) {
     varsMapIt->second = Deployka::substVars2(varsDict, varsMapIt->second);
-  }//
-//
+  }
+
   for (Deployka::Target& target : toProcess) {
     target.targetDirectory = Deployka::substVars2(varsDict, target.targetDirectory);
     target.sourceDirectory = Deployka::substVars2(varsDict, target.sourceDirectory);
-  }//
+  }
+
+  for (Deployka::Target& target : toProcess) {
+    std::cout << target;
+  }
 
   }
   catch(std::exception& e) {
