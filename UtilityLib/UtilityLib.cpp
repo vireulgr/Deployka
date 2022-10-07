@@ -30,36 +30,43 @@ std::multimap<std::string, std::string> loadSettingsFromXML2(std::string const& 
   std::multimap<std::string, std::string> result;
   pt::ptree aTree;
 
-  pt::read_xml(configFile, aTree);
+  try {
 
-  /// settingNode here is <Setting><Name>...</Name><Value>...</Value></Setting> subtree
-  /// including <xmlattr> in <Setting> element
-  for (pt::ptree::value_type & settingNode : aTree.get_child("Root.Settings")) {
+    pt::read_xml(configFile, aTree);
 
-    std::string name = settingNode.second.get<std::string>("Name"); //< get text inside <Name> element in <Setting>
-    str_to_lower(name);
+    /// settingNode here is <Setting><Name>...</Name><Value>...</Value></Setting> subtree
+    /// including <xmlattr> in <Setting> element
+    for (pt::ptree::value_type& settingNode : aTree.get_child("Root.Settings")) {
 
-    /// valueSubtree here is <Value>...</Value> subtree including 
-    /// including <xmlattr> in <Value> element
-    pt::ptree valueSubtree = settingNode.second.get_child("Value"); 
+      std::string name = settingNode.second.get<std::string>("Name"); //< get text inside <Name> element in <Setting>
+      str_to_lower(name);
 
-    //std::cout << "xml attributes:\n";
-    if (valueSubtree.count("<xmlattr>")) {
-      //pt::ptree xmlattrSubtree = valueSubtree.get_child("<xmlattr>");
+      /// valueSubtree here is <Value>...</Value> subtree including 
+      /// including <xmlattr> in <Value> element
+      pt::ptree valueSubtree = settingNode.second.get_child("Value");
 
-      /// first element in <xmlattr> subtree
-      pt::ptree::value_type xmlattrNode = valueSubtree.get_child("<xmlattr>").front();
+      //std::cout << "xml attributes:\n";
+      if (valueSubtree.count("<xmlattr>")) {
+        //pt::ptree xmlattrSubtree = valueSubtree.get_child("<xmlattr>");
 
-      /// xmlattrNode.second.data() and  xmlattrNode.second.get<std::string>("") is the same
-      if (xmlattrNode.first == "type" && xmlattrNode.second.data() == "list") {
-        /// treat <Value> subtree as list of string items
-        for (pt::ptree::value_type& itemNode : valueSubtree) {
-          if (itemNode.first != "Item") {
-            continue;
+        /// first element in <xmlattr> subtree
+        pt::ptree::value_type xmlattrNode = valueSubtree.get_child("<xmlattr>").front();
+
+        /// xmlattrNode.second.data() and  xmlattrNode.second.get<std::string>("") is the same
+        if (xmlattrNode.first == "type" && xmlattrNode.second.data() == "list") {
+          /// treat <Value> subtree as list of string items
+          for (pt::ptree::value_type& itemNode : valueSubtree) {
+            if (itemNode.first != "Item") {
+              continue;
+            }
+
+            //std::cout << itemNode.first << " => " << itemNode.second.data() << '\n';
+            result.insert({ name, itemNode.second.data() });
           }
-
-          //std::cout << itemNode.first << " => " << itemNode.second.data() << '\n';
-          result.insert({ name, itemNode.second.data() });
+        }
+        else {
+          /// treat <Value> as single string value
+          result.insert({ name, settingNode.second.get<std::string>("Value") });
         }
       }
       else {
@@ -67,10 +74,10 @@ std::multimap<std::string, std::string> loadSettingsFromXML2(std::string const& 
         result.insert({ name, settingNode.second.get<std::string>("Value") });
       }
     }
-    else {
-      /// treat <Value> as single string value
-      result.insert({ name, settingNode.second.get<std::string>("Value") });
-    }
+  }
+  catch (std::runtime_error& rte) {
+    std::cerr << "Error in loadSettingsFromXML2: " << rte.what();
+    throw rte;
   }
 
   return result;
@@ -86,15 +93,22 @@ std::map<std::string, std::string> loadSettingsFromXML(std::string const& config
   std::map<std::string, std::string> result;
   pt::ptree aTree;
 
-  pt::read_xml(configFile, aTree);
+  try {
 
-  for (pt::ptree::value_type & settingNode : aTree.get_child("Root.Settings")) {
+    pt::read_xml(configFile, aTree); // throws xml_parser_error
 
-    std::string name = settingNode.second.get<std::string>("Name");
-    str_to_lower(name);
-    std::string value = settingNode.second.get<std::string>("Value");
+    for (pt::ptree::value_type & settingNode : aTree.get_child("Root.Settings")) {
 
-    result.insert({ name, value });
+      std::string name = settingNode.second.get<std::string>("Name");
+      str_to_lower(name);
+      std::string value = settingNode.second.get<std::string>("Value");
+
+      result.insert({ name, value });
+    }
+  }
+  catch (std::runtime_error& e) {
+    std::cerr << "ERROR in loadSettingsFromXML: " << e.what();
+    throw e;
   }
 
   return result;

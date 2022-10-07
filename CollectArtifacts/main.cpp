@@ -137,6 +137,7 @@ namespace std {
  * @param[in] to Full path to destination file. If not exists, function will throw filesystem_error.
 */
 void replaceIfNewer(fs::path from, fs::path to) {
+  //std::cout << "replace if newer: " << from << "; " << to << '\n';
   time_t lwtFrom = fs::last_write_time(from); /// may throw filesystem_error if to is not exists
   time_t lwtTo = fs::last_write_time(to); /// may throw filesystem_error if to is not exists
   if (lwtFrom > lwtTo) {
@@ -155,6 +156,7 @@ struct MyCopyator {
   * @param[in] path Path to source directory
   */
   bool processDirectory(fs::path const & path) {
+    //std::cout << "Copyator processDir  " << path << '\n';
     fs::path relativePath = fs::relative(path, this->srcRootDirectory);
     fs::path destDir = this->destDirectory / relativePath;
     fs::create_directory(destDir);
@@ -162,18 +164,19 @@ struct MyCopyator {
   }
 
   /*!
-   * @brief Performs action (corresponding to this->method) on every source file
+   * @brief Performs action (corresponding to method member) on every source file
    * @param[in] path Path to source file
    * @return 
   */
   bool processFile(fs::path const & path) {
+    //std::cout << "Copyator processFile " << path << '\n';
     fs::path relativePath = fs::relative(path, this->srcRootDirectory);
     fs::path destPath = this->destDirectory / relativePath;
     bool result = false;
     switch (this->method) {
     case Deployka::DCM_replaceIfNewer:
       if (fs::exists(destPath)) {
-        replaceIfNewer(path, destPath);
+        ::replaceIfNewer(path, destPath);
       }
       else {
         fs::copy_file(path, destPath);
@@ -181,6 +184,7 @@ struct MyCopyator {
       result = true;
       break;
     case Deployka::DCM_cleanup:
+      //std::cout << "Copyator Removing " << destPath;
       fs::remove(destPath);
       result = true;
       break;
@@ -201,6 +205,7 @@ struct MyCopyator {
 
 bool copyDirectoryRecursively(fs::path root, MyCopyator my) {
 
+  //std::cout << "copyDirRecursively\n";
   bool doContinue = true;
   std::vector<fs::path> directories;
 
@@ -249,7 +254,7 @@ void processArtifacts(std::vector<Deployka::Artifact> & anArtifacts, Deployka::C
 
     for (auto & dep : item.dependencies) {
       if (!fs::exists(dep.path)) {
-        std::cout << "[E] Source path is not exists (" << dep.path << ")\n";
+        std::cout << "[W] Source path " << dep.path << " is not exists!\n";
         continue;
       }
       switch (dep.type) {
@@ -260,37 +265,40 @@ void processArtifacts(std::vector<Deployka::Artifact> & anArtifacts, Deployka::C
         for (; dirIt != endDirIt; ++dirIt) {
           std::string fileName = dirIt->path().filename().string();
 
-          std::regex aRegex(dep.pattern);
-          std::smatch results;
-          bool isMatch = std::regex_match(fileName, results, aRegex);
-          if (isMatch) {
-            fs::path result = fs::path(item.storeDir) / dirIt->path().filename();
-            if (fs::exists(result)) {
-              if (cm == Deployka::DCM_replaceIfNewer) {
-                replaceIfNewer(dirIt->path(), result);
+          try {
+            std::regex aRegex(dep.pattern);
+            std::smatch results;
+            bool isMatch = std::regex_match(fileName, results, aRegex);
+            if (isMatch) {
+              fs::path result = fs::path(item.storeDir) / dirIt->path().filename();
+              if (fs::exists(result)) {
+                if (cm == Deployka::DCM_replaceIfNewer) {
+                  ::replaceIfNewer(dirIt->path(), result);
+                }
+                else {
+                  std::cout << "[W] Already exists: " << result << "\n";
+                  continue;
+                }
               }
               else {
-                std::cout << "[W] Already exists: " << result << "\n";
-                continue;
+                fs::copy_file(dirIt->path(), result);
               }
             }
-            fs::copy_file(dirIt->path(), result);
+          }
+          catch (std::regex_error& re) {
+            std::cerr << "[W] in processArtifacts pattern: " << dep.pattern << "; artifact: " << item.name << '\n';
+            std::cerr << "[W] " << re.what() << '\n';
+            break;
           }
         }
       }
       break;
       case Deployka::DDT_directory: {
         fs::path result = fs::path(item.storeDir) / fs::path(dep.path).filename();
-        if (fs::exists(result)) {
-          if (cm == Deployka::DCM_replaceIfNewer) {
-            replaceIfNewer(dep.path, result);
-          }
-          else {
-            std::cout << "[W] Already exists: " << result << "\n";
-            break;
-          }
+        if (!fs::exists(result)) {
+          fs::create_directories(result);
         }
-        fs::copy(dep.path, result);
+        copyDirectoryRecursivelyWrapper(dep.path, result, cm);
       }
       break;
       case Deployka::DDT_file:
@@ -298,7 +306,7 @@ void processArtifacts(std::vector<Deployka::Artifact> & anArtifacts, Deployka::C
         fs::path result = fs::path(item.storeDir) / fs::path(dep.path).filename();
         if (fs::exists(result)) {
           if (cm == Deployka::DCM_replaceIfNewer) {
-            replaceIfNewer(dep.path, result);
+            ::replaceIfNewer(dep.path, result);
           }
           else {
             std::cout << "[W] Already exists: " << result << "\n";
@@ -405,62 +413,70 @@ R"str(<Dependency>$SrcRoot\VI\WebClient\Backend\WebServer\$MemModel\$Variant\Web
  * @param[in] configFile path to XML file
  * @return vector of targets filled from XML file
 */
-std::vector<Deployka::Artifact> loadTargetsFromXML(std::string const & configFile) {
+std::vector<Deployka::Artifact> loadTargetsFromXML(std::string const& configFile) {
 
   std::vector<Deployka::Artifact> result;
   pt::ptree aTree;
 
-  pt::read_xml(configFile, aTree);
+  try {
 
-  for (pt::ptree::value_type & targetNode : aTree.get_child("Root.Targets")) {
+    pt::read_xml(configFile, aTree);
 
-    Deployka::Artifact aTarget;
+    for (pt::ptree::value_type& targetNode : aTree.get_child("Root.Targets")) {
 
-    aTarget.name = targetNode.second.get<std::string>("Name");
-    aTarget.storeDir = targetNode.second.get<std::string>("PathToDirectory");
-    for (pt::ptree::value_type& dependencyNode : targetNode.second.get_child("Dependencies")) {
+      Deployka::Artifact aTarget;
 
-      Deployka::ArtifactDependency aDependency;
-      aDependency.type = Deployka::DDT_none;
+      aTarget.name = targetNode.second.get<std::string>("Name");
+      aTarget.storeDir = targetNode.second.get<std::string>("PathToDirectory");
+      for (pt::ptree::value_type& dependencyNode : targetNode.second.get_child("Dependencies")) {
 
-      if (dependencyNode.second.count("<xmlattr>")) { // <Dependency type="pattern">...</Dependency>
+        Deployka::ArtifactDependency aDependency;
+        aDependency.type = Deployka::DDT_none;
 
-        pt::ptree::value_type & xmlAttrVal = dependencyNode.second.get_child("<xmlattr>").front();
+        if (dependencyNode.second.count("<xmlattr>")) { // <Dependency type="pattern">...</Dependency>
 
-        if (xmlAttrVal.first == "type" && xmlAttrVal.second.data() == "pattern") {
-          std::string rootDirStr = dependencyNode.second.get<std::string>("RootDir");
-          std::string patternStr = dependencyNode.second.get<std::string>("Pattern");
-          //std::cout << "dependency is a pattern: " << patternStr << " with root dir: " << rootDirStr << "\n";
-          aDependency.type = Deployka::DDT_pattern;
-          aDependency.path = rootDirStr;
-          aDependency.pattern = patternStr;
-        }
-        else if (xmlAttrVal.first == "type" && xmlAttrVal.second.data() == "directory") {
-          //std::cout << "dependency is a directory: " << dependencyNode.second.data() << "\n";
-          aDependency.type = Deployka::DDT_directory;
-          aDependency.path = dependencyNode.second.data();
-        }
-        else if (xmlAttrVal.first == "type" && xmlAttrVal.second.data() == "file") {
-          //std::cout << "dependency is a file: " << dependencyNode.second.data() << "\n";
-          aDependency.type = Deployka::DDT_file;
-          aDependency.path = dependencyNode.second.data();
+          pt::ptree::value_type& xmlAttrVal = dependencyNode.second.get_child("<xmlattr>").front();
+
+          if (xmlAttrVal.first == "type" && xmlAttrVal.second.data() == "pattern") {
+            std::string rootDirStr = dependencyNode.second.get<std::string>("RootDir");
+            std::string patternStr = dependencyNode.second.get<std::string>("Pattern");
+            //std::out << "dependency is a pattern: " << patternStr << " with root dir: " << rootDirStr << "\n";
+            aDependency.type = Deployka::DDT_pattern;
+            aDependency.path = rootDirStr;
+            aDependency.pattern = patternStr;
+          }
+          else if (xmlAttrVal.first == "type" && xmlAttrVal.second.data() == "directory") {
+            //std::cout << "dependency is a directory: " << dependencyNode.second.data() << "\n";
+            aDependency.type = Deployka::DDT_directory;
+            aDependency.path = dependencyNode.second.data();
+          }
+          else if (xmlAttrVal.first == "type" && xmlAttrVal.second.data() == "file") {
+            //std::cout << "dependency is a file: " << dependencyNode.second.data() << "\n";
+            aDependency.type = Deployka::DDT_file;
+            aDependency.path = dependencyNode.second.data();
+          }
+          else {
+            std::cout << "[W] Dependency is unknown type with data: " << dependencyNode.second.data() << "\n";
+          }
         }
         else {
-          std::cout << "[W] Dependency is unknown type with data: " << dependencyNode.second.data() << "\n";
-        }
-      }
-      else {
           //std::cout << "dependency is a file: " << dependencyNode.second.data() << "\n";
           aDependency.type = Deployka::DDT_file;
           aDependency.path = dependencyNode.second.data();
+        }
+
+        if (dependencyNode.first == "Dependency" && aDependency.type != Deployka::DDT_none) {
+          aTarget.dependencies.emplace_back(aDependency);
+        }
       }
 
-      if (dependencyNode.first == "Dependency" && aDependency.type != Deployka::DDT_none) {
-        aTarget.dependencies.emplace_back(aDependency);
-      }
+      result.emplace_back(std::move(aTarget));
     }
-
-    result.emplace_back(std::move(aTarget));
+  }
+  catch (std::runtime_error& re) {
+    // details of the exception will be shown in outer context
+    std::cerr << "[E] in loadTargetsFromXML configFile: " << configFile << '\n';
+    throw re;
   }
 
   return result;
@@ -518,9 +534,10 @@ int main(int argc, char * argv[]) {
     (
       "target,T",
       //po::value<std::vector<std::string>>(&requestedTargets)->default_value({"Frontend", "WebServer"}),
-      po::value<std::vector<std::string>>(&requestedTargets)->default_value({"NotebookWasya", "SubfolderTarget", "PatternTarget"}),
+      po::value<std::vector<std::string>>(&requestedTargets)->default_value({"Frontend", "WebServer", "ViCoreService"}),
       "Which target from config to collected"
     )
+    // TODO add collect method parameter
   ;
 
   // process command line options
@@ -605,11 +622,11 @@ int main(int argc, char * argv[]) {
 
   } // /TRY
   catch(std::exception& e) {
-      std::cerr << "error: " << e.what() << "\n";
+      std::cerr << "[E] in main: " << e.what() << "\n";
       return 1;
   }
   catch(...) {
-      std::cerr << "Exception of unknown type!\n";
+      std::cerr << "[E] Exception of unknown type!\n";
       return 2;
   }
 #endif
