@@ -22,6 +22,8 @@
 
 #include "networkLib.h"
 
+#define _TESTS_
+
 using namespace boost::asio;
 
 template <typename T>
@@ -335,11 +337,43 @@ struct MyThreadedFileReader {
   }
 };
 
-void sendBigFileCommand(ip::tcp::socket& sock, std::string fileName) {
-  //std::future<
+//void sendBigFileCommand(ip::tcp::socket& sock, std::string fileName) {
+//  //std::future<
+//
+//}
+
+
+#ifdef _TESTS_
+void TEST_threadedFileReader() {
+  char const* const fileNames[] = {
+    R"-(E:\prog\cpp\Deployka\build\TargetAgent\Debug\TargetAgent.pdb)-",
+    R"-(I:\prog_n_gamedev\VCS\Deployka\build\TargetAgent\Debug\TargetAgent.pdb)-"
+  };
+  char const* existingFile = nullptr;
+  for (int i = 0; i < _countof(fileNames); i++) {
+    bool isSuitableFile = false;
+#if defined(_MSC_VER) && defined(USE_WIN_NATIVE_FILE_IO)
+    DWORD fileAttrib = GetFileAttributes(fileNames[i]);
+    isSuitableFile = (fileAttrib != INVALID_FILE_ATTRIBUTES) && !(fileAttrib & FILE_ATTRIBUTE_DIRECTORY);
+#else
+    isSuitableFile = fs::exists(fileNames[i] && fs::is_regular_file(fileNames[i];
+#endif
+    if (isSuitableFile) {
+      existingFile = fileNames[i];
+      break;
+    }
+  }
+  if (existingFile == nullptr) {
+    std::cout << "Error! Cannot find file to transfer!\n";
+    return;
+  }
+  MyThreadedFileReader fileReader(existingFile);
+  char theBuffer[65535] = {};
+  fileReader.readPart(theBuffer, 65535);
+  std::this_thread::sleep_for(std::chrono::seconds(2));
 
 }
-
+#endif
 
 // ================================================================================
 void sendString(ip::tcp::socket& sock, std::string aStr) {
@@ -351,6 +385,12 @@ void sendString(ip::tcp::socket& sock, std::string aStr) {
 
 //================================================================================
 int main(int argc, char* argv[]) {
+
+#ifdef _TESTS_
+  argc;
+  argv;
+  TEST_threadedFileReader();
+#else
   std::ostream::sync_with_stdio(false);
 
   if (argc != 2) {
@@ -409,15 +449,20 @@ int main(int argc, char* argv[]) {
           R"-(I:\prog_n_gamedev\VCS\Deployka\build\TargetAgent\Debug\TargetAgent.pdb)-"
         };
         char const* existingFile = nullptr;
-#if defined(_MSC_VER) && defined(USE_WIN_NATIVE_FILE_IO)
         for (int i = 0; i < _countof(fileNames); i++) {
+#if defined(_MSC_VER) && defined(USE_WIN_NATIVE_FILE_IO)
           DWORD fileAttrib = GetFileAttributes(fileNames[i]);
           if ((fileAttrib != INVALID_FILE_ATTRIBUTES) && !(fileAttrib & FILE_ATTRIBUTE_DIRECTORY)) {
             existingFile = fileNames[i];
+            break;
           }
-        }
 #else
+          if (fs::exists(fileNames[i] && fs::is_regular_file(fileNames[i]) {
+            existingFile = fileNames[i];
+            break;
+          }
 #endif
+        }
         if (existingFile == nullptr) {
           std::cout << "Error! Cannot find file to transfer!\n";
           continue;
@@ -434,6 +479,7 @@ int main(int argc, char* argv[]) {
   catch (std::exception & e) {
     std::cerr << "Exception in main: " << e.what() << std::endl;
   }
+#endif
 
   return 0;
 }
