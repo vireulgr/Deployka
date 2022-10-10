@@ -16,7 +16,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
 #else
-#include <filesystem>
+#include <boost/filesystem>
 #endif
 //#include "boost/asio/impl/src.hpp"
 
@@ -203,7 +203,7 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
   fileLastModTimeIsoStr = tmpOss.str();
   fileSize = liFileSize.QuadPart;
 #else
-  namespace fs = std::filesystem;
+  namespace fs = boost::filesystem;
   fs::last_write_time(filename);
 #endif
 
@@ -262,6 +262,82 @@ void sendFileChunkedCommand(ip::tcp::socket& sock, std::string filename) {
   CloseHandle(hFile);
 #else
 #endif
+}
+
+struct MyThreadedFileReader {
+  std::ifstream ifs;
+  std::thread thr;
+  std::mutex mtx;
+  size_t offset;
+
+  volatile bool readDone;
+  volatile size_t bytesReaded;
+  volatile bool isEof;
+  volatile bool doWork;
+  char * volatile  bufferToReadTo;
+  volatile size_t bufferSize;
+
+  MyThreadedFileReader(std::string fileName)
+    : offset(0)
+    , readDone(false)
+    , bytesReaded(0)
+    , isEof(false)
+    , doWork(true)
+    , bufferToReadTo(nullptr)
+    , bufferSize(0)
+  {
+    ifs.open(fileName, std::ios_base::binary);
+
+    thr = std::thread(&MyThreadedFileReader::threadFunc, this);
+  }
+
+  void threadFunc() {
+    while (doWork) {
+      if (!readDone) {
+        std::lock_guard<std::mutex> lock(mtx);
+        // try lock
+        // else sleep
+
+        ifs.read(bufferToReadTo, bufferSize);
+        isEof = ifs.eofbit;
+        bytesReaded = ifs.gcount();
+
+        readDone = true;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+  }
+
+  void readPart(char * const buf, size_t bufSize) {
+    std::lock_guard<std::mutex> lock(mtx);
+    bufferToReadTo = buf;
+    bufferSize = bufSize;
+    readDone = false;
+  }
+
+  bool isReadDone() {
+    return readDone;
+  }
+
+  std::pair<size_t, bool> getReadBytes() {
+    std::lock_guard<std::mutex> lock(mtx);
+    return std::make_pair(bytesReaded, isEof);
+  }
+
+  ~MyThreadedFileReader() {
+    if (ifs.is_open()) {
+      ifs.close();
+    }
+    doWork = false;
+    if (thr.joinable()) {
+      thr.join();
+    }
+  }
+};
+
+void sendBigFileCommand(ip::tcp::socket& sock, std::string fileName) {
+  //std::future<
+
 }
 
 
