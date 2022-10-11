@@ -313,7 +313,9 @@ void processArtifacts(std::vector<Deployka::Artifact> & anArtifacts, Deployka::C
             break;
           }
         }
-        fs::copy_file(dep.path, result);
+        else {
+          fs::copy_file(dep.path, result);
+        }
       }
       break;
       }
