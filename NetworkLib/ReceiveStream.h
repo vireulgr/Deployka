@@ -11,15 +11,15 @@ namespace Deployka {
 *********************************************************************************/
 struct ReceiveBuffer {
 protected:
-  size_t dataOffset;
+  size_t dataOffset; // index in array where data is actually begins
   std::array<unsigned char, RECV_BUF_SIZE> bufData;
 public:
-  size_t bufOffset; // offset of buffer in message
+  size_t bufOffset; // offset of buffer in message (stream)
   size_t bufSize; // buffer size
 
   ReceiveBuffer();
 
-  size_t initialize(unsigned char const* data, size_t dataSize);
+  size_t initialize(unsigned char const* data, size_t dataSize); // put data to beginning of receive buffer
   size_t readFromOffsetToEnd(unsigned char* data, size_t offset) const;
   size_t readCountFromOffset(unsigned char* data, size_t offset, size_t count) const;
   size_t pop(size_t count);

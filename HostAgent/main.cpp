@@ -337,10 +337,28 @@ struct MyThreadedFileReader {
   }
 };
 
-//void sendBigFileCommand(ip::tcp::socket& sock, std::string fileName) {
-//  //std::future<
-//
-//}
+void sendBigFileCommand(ip::tcp::socket& sock, std::string fileName) {
+  sock;
+  //std::future<
+  MyThreadedFileReader tfr(fileName);
+
+  int constexpr bufSize = 8196;
+
+  char* buffers[2];
+  buffers[0] = new char[bufSize];
+  buffers[1] = new char[bufSize];
+
+  unsigned char activeBuffer = 0;
+
+  tfr.readPart(buffers[activeBuffer], bufSize);
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  std::pair<size_t, bool> readResult = tfr.getReadBytes();
+  if (readResult.second) {
+    std::cout << "is eof\n";
+  }
+}
 
 
 #ifdef _TESTS_
@@ -371,8 +389,8 @@ void TEST_threadedFileReader() {
   char theBuffer[65535] = {};
   fileReader.readPart(theBuffer, 65535);
   std::this_thread::sleep_for(std::chrono::seconds(2));
-
 }
+
 #endif
 
 // ================================================================================

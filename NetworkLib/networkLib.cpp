@@ -2,7 +2,6 @@
 #include <iostream>
 #include <iomanip>
 #include <algorithm>
-//#include <cassert>
 
 namespace Deployka {
 
